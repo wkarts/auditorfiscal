@@ -18,6 +18,10 @@ Acesse `https://$AUDITOR_DOMAIN`. O primeiro usuário administrador é criado pe
 
 Por padrão, `DEPLOY_MODE=ghcr` baixa as imagens oficiais publicadas em `ghcr.io/wkarts`. Para desenvolvimento local com compilação dos Dockerfiles, altere para `DEPLOY_MODE=source`.
 
+## Pipeline de imagens Docker
+
+Em Pull Requests, os Dockerfiles são validados sem construir ou publicar as imagens completas. O build multi-arquitetura e a publicação no GHCR ocorrem somente após merge em `main`, em tags SemVer ou por execução manual. Consulte `docs/validacao-imagens-docker.md`.
+
 ## Componentes
 
 - Laravel API: autenticação, RBAC, empresas, catálogos, lotes, achados e relatórios.

@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Fixed
+- Habilita explicitamente a extensão PHP `sockets`, exigida pelo cliente AMQP usado pelo driver RabbitMQ.
+- Substitui o build integral das três imagens em Pull Requests por validação estática com BuildKit `call: check`.
+- Mantém build multi-arquitetura e publicação no GHCR somente em `main`, tags SemVer e execução manual.
+- Desativa o upload de registros `.dockerbuild` para evitar consumo desnecessário da cota de artifacts.
+- Desativa o cache concorrente da imagem QEMU e reduz o cache de build publicado para `mode=min`.
+
+
+### Fixed
 - Corrige o build da imagem Laravel ao executar o Composer no mesmo ambiente PHP 8.4 da aplicação, com todas as extensões exigidas.
 - Remove a dependência da imagem enxuta `composer:2` como ambiente de resolução das dependências.
 - Atualiza as Docker Actions para versões baseadas em Node.js 24.

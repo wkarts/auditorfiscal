@@ -1,4 +1,5 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.8
+# check=error=true
 
 ARG PHP_VERSION=8.4
 ARG COMPOSER_VERSION=2.10.2
@@ -41,11 +42,13 @@ RUN set -eux; \
         opcache \
         pcntl \
         pdo_pgsql \
+        sockets \
         xml \
         xmlwriter \
         zip; \
     pecl install redis amqp; \
     docker-php-ext-enable redis amqp; \
+    php -m | grep -Fxq sockets; \
     apk del .build-deps; \
     rm -rf /tmp/pear /var/cache/apk/*
 
