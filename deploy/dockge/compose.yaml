@@ -1,0 +1,155 @@
+name: auditor-fiscal
+
+x-api-image: &api_image ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 20m
+    max-file: "5"
+
+services:
+  api:
+    image: *api_image
+    restart: unless-stopped
+    env_file: .env
+    volumes: [api_storage:/var/www/html/storage]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health/live"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+    logging: *logging
+
+  scheduler:
+    image: *api_image
+    restart: unless-stopped
+    env_file: .env
+    command: ["php", "artisan", "schedule:work"]
+    volumes: [api_storage:/var/www/html/storage]
+    depends_on:
+      api: {condition: service_healthy}
+    logging: *logging
+
+  worker:
+    image: *api_image
+    restart: unless-stopped
+    env_file: .env
+    command: ["php", "artisan", "queue:work", "rabbitmq", "--queue=high,default,reports", "--sleep=1", "--tries=3", "--timeout=3600", "--max-time=3600"]
+    volumes: [api_storage:/var/www/html/storage]
+    depends_on:
+      api: {condition: service_healthy}
+      fiscal-engine: {condition: service_healthy}
+    logging: *logging
+
+  web:
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-web:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+    restart: unless-stopped
+    ports:
+      - "${APP_HTTP_BIND:-127.0.0.1}:${APP_HTTP_PORT:-8080}:80"
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  fiscal-engine:
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-fiscal-engine:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    logging: *logging
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes: [rabbitmq_data:/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+    logging: *logging
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes: [minio_data:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  minio-init:
+    image: minio/mc:latest
+    restart: "no"
+    env_file: .env
+    depends_on:
+      minio: {condition: service_healthy}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "local/$${AWS_BUCKET}"
+        mc anonymous set none "local/$${AWS_BUCKET}"
+
+volumes:
+  postgres_data: {}
+  redis_data: {}
+  rabbitmq_data: {}
+  minio_data: {}
+  api_storage: {}

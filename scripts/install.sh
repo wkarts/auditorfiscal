@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+command -v docker >/dev/null || { echo 'Docker não encontrado.' >&2; exit 1; }
+docker compose version >/dev/null || { echo 'Docker Compose V2 não encontrado.' >&2; exit 1; }
+
 [[ -f .env ]] || cp .env.example .env
 
 if grep -q '^APP_KEY=$' .env; then
@@ -12,47 +15,37 @@ fi
 source "$(dirname "$0")/lib/compose.sh"
 
 required_secrets=(
-  ADMIN_PASSWORD
-  DB_PASSWORD
-  RABBITMQ_PASSWORD
-  AWS_SECRET_ACCESS_KEY
-  FISCAL_ENGINE_TOKEN
-  MINIO_ROOT_PASSWORD
-  GRAFANA_ADMIN_PASSWORD
+  ADMIN_PASSWORD DB_PASSWORD RABBITMQ_PASSWORD AWS_SECRET_ACCESS_KEY
+  FISCAL_ENGINE_TOKEN MINIO_ROOT_PASSWORD GRAFANA_ADMIN_PASSWORD
 )
 
 invalid=0
 for key in "${required_secrets[@]}"; do
   value="${!key:-}"
-  case "$value" in
-    ''|replace-me|troque_esta_senha|troque-token-interno)
-      echo "Credencial obrigatória não configurada: $key" >&2
-      invalid=1
-      ;;
-  esac
+  if [[ -z "$value" ]]; then
+    echo "Credencial obrigatória não configurada: $key" >&2
+    invalid=1
+  fi
 done
-
-if (( invalid != 0 )); then
-  echo 'Edite o arquivo .env e defina credenciais fortes antes de continuar.' >&2
-  exit 1
-fi
 
 if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
-  dc pull
-else
-  dc build --pull
+  [[ -n "${GHCR_NAMESPACE:-}" ]] || { echo 'GHCR_NAMESPACE é obrigatório em DEPLOY_MODE=ghcr.' >&2; invalid=1; }
+  [[ -n "${AUDITOR_IMAGE_TAG:-}" ]] || { echo 'AUDITOR_IMAGE_TAG é obrigatório em DEPLOY_MODE=ghcr.' >&2; invalid=1; }
 fi
 
-dc up -d postgres redis rabbitmq minio minio-init
+(( invalid == 0 )) || exit 1
 
-for i in {1..60}; do
-  if dc exec -T postgres pg_isready \
-    -U "${DB_USERNAME:-auditor}" \
-    -d "${DB_DATABASE:-auditor_fiscal}" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 2
-done
+dc config --quiet
+
+if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
+  dc pull api web fiscal-engine
+else
+  dc build --pull api web fiscal-engine
+fi
+
+dc up -d postgres redis rabbitmq minio
+
+dc run --rm minio-init
 
 dc run --rm api php artisan migrate --force
 dc run --rm api php artisan db:seed --force
@@ -62,5 +55,4 @@ if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
 else
   dc up -d --remove-orphans
 fi
-
 ./scripts/healthcheck.sh

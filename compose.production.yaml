@@ -1,51 +1,54 @@
 # Override de produção com imagens publicadas no GitHub Container Registry.
-# Uso: docker compose -f compose.yaml -f compose.production.yaml up -d --pull always --no-build
+# Uso: DEPLOY_MODE=ghcr ./scripts/install.sh
 services:
   api:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:-latest}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
-    deploy:
-      resources:
-        limits: {cpus: '2.0', memory: 2G}
-        reservations: {memory: 512M}
     logging: &default_logging
       driver: json-file
-      options: {max-size: 20m, max-file: '5'}
+      options:
+        max-size: 20m
+        max-file: "5"
+    deploy:
+      resources:
+        limits: {cpus: "2.0", memory: 2G}
+        reservations: {memory: 512M}
 
   scheduler:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:-latest}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
     logging: *default_logging
 
   worker:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:-latest}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
-    deploy:
-      resources:
-        limits: {cpus: '2.0', memory: 2G}
-        reservations: {memory: 512M}
     logging: *default_logging
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+      resources:
+        limits: {cpus: "2.0", memory: 2G}
+        reservations: {memory: 512M}
 
   web:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-web:${AUDITOR_IMAGE_TAG:-latest}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-web:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
     logging: *default_logging
 
   fiscal-engine:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-fiscal-engine:${AUDITOR_IMAGE_TAG:-latest}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-fiscal-engine:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
+    logging: *default_logging
     deploy:
       resources:
-        limits: {cpus: '4.0', memory: 4G}
+        limits: {cpus: "4.0", memory: 4G}
         reservations: {memory: 1G}
-    logging: *default_logging
 
   postgres:
+    logging: *default_logging
+    shm_size: 512mb
     deploy:
       resources:
-        limits: {cpus: '2.0', memory: 3G}
-    shm_size: 512mb
-    logging: *default_logging
+        limits: {cpus: "2.0", memory: 3G}
 
   redis:
     logging: *default_logging

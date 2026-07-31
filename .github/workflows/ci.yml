@@ -3,9 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -15,6 +13,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  repository:
+    name: Repository contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate repository privacy
+        run: python3 scripts/scan-repository-data.py
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Validate shell scripts
+        run: shellcheck scripts/*.sh scripts/lib/*.sh
+
+      - name: Validate release version
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: bash ./scripts/check-version.sh
+
   api:
     name: API (Laravel)
     runs-on: ubuntu-latest
@@ -29,7 +49,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: mbstring, pdo_sqlite, bcmath, pcntl, intl, sockets, zip
+          extensions: amqp, bcmath, curl, dom, intl, mbstring, pcntl, pdo_sqlite, pdo_pgsql, redis, sockets, xml, xmlwriter, zip
           coverage: none
           tools: composer:v2
 
@@ -68,8 +88,15 @@ jobs:
       - name: Validate Python bytecode
         run: python -m compileall -q app tests
 
+      - name: Run static analysis
+        run: ruff check app tests
+
       - name: Run fiscal-engine tests
         run: pytest --cov=app --cov-report=term-missing
+
+      - name: Validate synthetic dataset
+        working-directory: .
+        run: python3 scripts/validate-demo-dataset.py
 
   web:
     name: Web (Vue/TypeScript)
@@ -88,7 +115,12 @@ jobs:
           package-manager-cache: false
 
       - name: Install frontend dependencies
-        run: npm install --no-audit --no-fund
+        run: |
+          if [[ -f package-lock.json ]]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
 
       - name: Validate Vue SFC structure
         run: npm run validate:sfc
@@ -109,10 +141,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Prepare environment
-        run: cp .env.example .env
+      - name: Prepare non-secret validation environment
+        run: |
+          cp .env.example .env
+          sed -i 's|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=ci-only|' .env
+          sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=ci-only|' .env
+          sed -i 's|^RABBITMQ_PASSWORD=.*|RABBITMQ_PASSWORD=ci-only|' .env
+          sed -i 's|^AWS_SECRET_ACCESS_KEY=.*|AWS_SECRET_ACCESS_KEY=ci-only|' .env
+          sed -i 's|^FISCAL_ENGINE_TOKEN=.*|FISCAL_ENGINE_TOKEN=ci-only|' .env
+          sed -i 's|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=ci-only|' .env
+          sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=ci-only|' .env
+          sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=example|' .env
 
       - name: Validate Compose files
         run: |
           docker compose -f compose.yaml config --quiet
           docker compose -f compose.yaml -f compose.production.yaml config --quiet
+          docker compose -f compose.yaml -f deploy/ci/compose.ci.yaml config --quiet

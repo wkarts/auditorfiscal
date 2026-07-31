@@ -15,6 +15,7 @@ ENV APP_ENV=production \
     COMPOSER_NO_AUDIT=1
 
 RUN set -eux; \
+    apk upgrade --no-cache; \
     apk add --no-cache \
         ca-certificates \
         curl \
@@ -30,6 +31,7 @@ RUN set -eux; \
         icu-dev \
         libxml2-dev \
         libzip-dev \
+        linux-headers \
         oniguruma-dev \
         postgresql-dev \
         rabbitmq-c-dev; \

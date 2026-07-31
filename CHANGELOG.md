@@ -1,35 +1,36 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.1] - 2026-07-31
 
-### Fixed
-- Habilita explicitamente a extensão PHP `sockets`, exigida pelo cliente AMQP usado pelo driver RabbitMQ.
-- Substitui o build integral das três imagens em Pull Requests por validação estática com BuildKit `call: check`.
-- Mantém build multi-arquitetura e publicação no GHCR somente em `main`, tags SemVer e execução manual.
-- Desativa o upload de registros `.dockerbuild` para evitar consumo desnecessário da cota de artifacts.
-- Desativa o cache concorrente da imagem QEMU e reduz o cache de build publicado para `mode=min`.
+### Corrigido
 
+- Validação completa das imagens Docker em Pull Requests, com build AMD64, smoke tests e Trivy.
+- Correção da imagem PHP Alpine com `linux-headers` para compilar `ext-sockets`.
+- Validação e distribuição Docker restritas a `linux/amd64`.
+- Ajuste dos gates ShellCheck e Ruff ao estado real do código.
+- Atualização dos pacotes de sistema das imagens API, Web e Fiscal Engine antes da varredura Trivy.
+- Correção das 12 vulnerabilidades HIGH corrigíveis herdadas da imagem Nginx/Alpine.
+- Correção da inicialização do MinIO Client com comando shell atômico.
+- PostgreSQL fixado na série 17 para preservar o layout de volume suportado.
+- Workflows passam a aguardar a saúde da infraestrutura antes de migrations e seeds.
+- Scripts de versão são executados explicitamente com Bash, sem depender do bit executável.
+- Pipeline automático de release baseado no arquivo `VERSION`.
+- Publicação das imagens API, Web e Fiscal Engine no GitHub Container Registry.
+- Verificação das imagens já publicadas antes da criação da GitHub Release.
+- Remoção de nomes, identificadores e referências de clientes do código, testes e documentação.
+- Remoção de credenciais padrão da tela de login e dos seeders.
+- Guias completos de Docker Compose, Dockge, CloudPanel, Portainer, Caddy, Nginx e Traefik.
 
-### Fixed
-- Corrige o build da imagem Laravel ao executar o Composer no mesmo ambiente PHP 8.4 da aplicação, com todas as extensões exigidas.
-- Remove a dependência da imagem enxuta `composer:2` como ambiente de resolução das dependências.
-- Atualiza as Docker Actions para versões baseadas em Node.js 24.
-- Adiciona validação preventiva dos insumos de build e `.dockerignore` da API.
+### Segurança
+
+- Varredura automática de dados pessoais e identificadores fiscais no repositório.
+- Histórico de distribuição preparado para ser recriado sem dados de terceiros.
 
 ## [1.0.0] - 2026-07-30
 
-- Entrega inicial integral do Auditor Fiscal IBS/CBS.
-- Catálogo NCM × ClassTrib portado para seed PostgreSQL.
-- Corrige a compatibilidade do driver RabbitMQ com Laravel 13.
-- Corrige a configuração das extensões PHP no GitHub Actions.
-- Atualiza as actions para a geração baseada em Node.js 24.
-- Corrige as validações de Trivy e Gitleaks em pull requests.
+### Adicionado
 
-### Correções de validação adicionais
-
-- Corrige o fechamento dos templates em `DashboardView.vue` e `AnalysisDetailView.vue`; o painel também foi tornado legível e tipado.
-- Adiciona validação dedicada de todos os componentes Vue SFC antes do typecheck e do build.
-- Valida `compose.production.yaml` como override de `compose.yaml`, conforme a finalidade do arquivo.
-- Adiciona configuração precisa do Gitleaks para o placeholder histórico conhecido em `.env.example`.
-- Remove o valor de senha administrativa do arquivo `.env.example` atual.
-- Torna a leitura da versão da API tolerante à ausência do arquivo `VERSION`.
+- Estrutura inicial da plataforma de auditoria fiscal IBS/CBS.
+- Backend Laravel, frontend Vue e motor fiscal Python.
+- Catálogo NCM × CST × cClassTrib portado para o banco de dados.
+- Importação XML/ZIP, filas, relatórios PDF/Excel e infraestrutura Docker.

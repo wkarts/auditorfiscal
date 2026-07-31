@@ -1,2 +1,5 @@
 # Dados de demonstração
-`NotasFiscais-demo.zip` contém uma NF-e sintética, sem dados reais, para validar upload, parsing, cálculo UB16-10, cruzamento NCM × ClassTrib e geração de relatórios. Os XMLs reais usados como golden dataset não são redistribuídos por conterem dados fiscais e pessoais.
+
+`NotasFiscais-demo.zip` contém uma NF-e integralmente sintética e sem validade
+fiscal. O arquivo valida upload, parsing, cálculo UB16-10, cruzamento NCM ×
+ClassTrib e geração de relatórios sem utilizar dados de pessoas ou empresas.
