@@ -1,0 +1,14 @@
+title = "Auditor Fiscal Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Permite somente o placeholder histórico de senha administrativa no arquivo de exemplo"
+condition = "AND"
+regexTarget = "line"
+regexes = ['''^ADMIN_PASSWORD=troque-por-uma-senha-de-[0-9]+-caracteres$''']
+paths = ['''^\.env\.example$''']

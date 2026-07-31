@@ -1,3 +1,15 @@
 <?php
+
 use Illuminate\Support\Facades\Route;
-Route::get('/', fn()=>response()->json(['name'=>'Auditor Fiscal API','version'=>trim(file_get_contents(base_path('../../VERSION')))]));
+
+Route::get('/', static function () {
+    $versionFile = base_path('../../VERSION');
+    $version = is_readable($versionFile)
+        ? trim((string) file_get_contents($versionFile))
+        : 'dev';
+
+    return response()->json([
+        'name' => 'Auditor Fiscal API',
+        'version' => $version,
+    ]);
+});

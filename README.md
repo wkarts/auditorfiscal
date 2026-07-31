@@ -14,7 +14,7 @@ cp .env.example .env
 make install
 ```
 
-Acesse `https://$AUDITOR_DOMAIN`. O primeiro usuário administrador é criado pelo seeder conforme `ADMIN_EMAIL` e `ADMIN_PASSWORD`; em ausência dessas variáveis, use `admin@auditor.local` / `ChangeMe!123` somente no ambiente local e altere imediatamente.
+Acesse `https://$AUDITOR_DOMAIN`. O primeiro usuário administrador é criado pelo seeder conforme `ADMIN_EMAIL` e `ADMIN_PASSWORD`. O instalador bloqueia valores vazios ou placeholders em credenciais obrigatórias.
 
 ## Componentes
 

@@ -90,6 +90,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Validate Vue SFC structure
+        run: npm run validate:sfc
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -112,4 +115,4 @@ jobs:
       - name: Validate Compose files
         run: |
           docker compose -f compose.yaml config --quiet
-          docker compose -f compose.production.yaml config --quiet
+          docker compose -f compose.yaml -f compose.production.yaml config --quiet
