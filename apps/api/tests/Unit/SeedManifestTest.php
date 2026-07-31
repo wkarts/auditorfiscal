@@ -1,0 +1,2 @@
+<?php
+namespace Tests\Unit; use PHPUnit\Framework\TestCase; class SeedManifestTest extends TestCase {public function test_complete_catalog_was_ported():void{$m=json_decode(file_get_contents(__DIR__.'/../../database/seeders/data/manifest.json'),true);$this->assertSame(15638,$m['statistics']['parameter_rows']);$this->assertSame(19,$m['statistics']['cst_rows']);$this->assertSame(142,$m['statistics']['cclass_rows']);$this->assertSame(10513,$m['statistics']['distinct_full_ncm']);}}

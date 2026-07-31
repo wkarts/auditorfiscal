@@ -1,0 +1,3 @@
+<?php
+namespace App\Services; use App\Models\Company; use App\Models\User; use Illuminate\Auth\Access\AuthorizationException;
+class CompanyAccess {public static function ensure(User $user,string $companyId):Company{$q=Company::query()->whereKey($companyId);if(!$user->hasRole('Administrador'))$q->whereHas('users',fn($x)=>$x->where('users.id',$user->id));return $q->firstOrFail();}public static function ids(User $user){return $user->hasRole('Administrador')?Company::query()->pluck('id'):$user->companies()->pluck('companies.id');}}
