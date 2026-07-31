@@ -1,0 +1,14 @@
+title = "Auditor Fiscal Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+# Exceção estritamente limitada ao placeholder histórico documentado.
+# Ela não libera outras senhas, outros arquivos ou outras regras.
+[[allowlists]]
+description = "Placeholder administrativo histórico conhecido"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+regexes = ['''^ADMIN_PASSWORD=troque-por-uma-senha-de-16-caracteres$''']
+paths = ['''^(?:\.env\.example|docs/validacao-ci-2026-07-31\.md)$''']

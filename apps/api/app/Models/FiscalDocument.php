@@ -1,0 +1,2 @@
+<?php
+namespace App\Models; use Illuminate\Database\Eloquent\Concerns\HasUuids; use Illuminate\Database\Eloquent\Model; class FiscalDocument extends Model {use HasUuids;protected $guarded=[];protected function casts():array{return ['normalized'=>'array','issued_at'=>'datetime'];}public function items(){return $this->hasMany(FiscalItem::class);}public function findings(){return $this->hasMany(Finding::class);}}

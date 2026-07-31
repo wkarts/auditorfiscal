@@ -1,0 +1,133 @@
+name: auditor-fiscal
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: .env
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api, web]
+
+  api:
+    build: {context: ./apps/api, dockerfile: Dockerfile}
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - api_storage:/var/www/html/storage
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      minio: {condition: service_started}
+
+  scheduler:
+    build: {context: ./apps/api, dockerfile: Dockerfile}
+    restart: unless-stopped
+    env_file: .env
+    command: ["php", "artisan", "schedule:work"]
+    volumes: ["api_storage:/var/www/html/storage"]
+    depends_on: [api]
+
+  worker:
+    build: {context: ./apps/api, dockerfile: Dockerfile}
+    restart: unless-stopped
+    env_file: .env
+    command: ["php", "artisan", "queue:work", "rabbitmq", "--queue=high,default,reports", "--sleep=1", "--tries=3", "--timeout=3600", "--max-time=3600"]
+    deploy: {replicas: 2}
+    volumes: ["api_storage:/var/www/html/storage"]
+    depends_on: [api, fiscal-engine]
+
+  web:
+    build: {context: ./apps/web, dockerfile: Dockerfile}
+    restart: unless-stopped
+    depends_on: [api]
+
+  web-build:
+    image: node:24-alpine
+    profiles: [tools]
+    working_dir: /app
+    volumes: ["./apps/web:/app"]
+    command: ["sleep", "infinity"]
+
+  fiscal-engine:
+    build: {context: ./services/fiscal-engine, dockerfile: Dockerfile}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://auditor:${DB_PASSWORD}@postgres:5432/auditor_fiscal
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio: {condition: service_started}
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"], interval: 10s, timeout: 5s, retries: 10}
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis_data:/data"]
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 10s, timeout: 5s, retries: 10}
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes: ["rabbitmq_data:/var/lib/rabbitmq"]
+    healthcheck: {test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"], interval: 10s, timeout: 5s, retries: 12}
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes: ["minio_data:/data"]
+
+  minio-init:
+    image: minio/mc:latest
+    restart: "no"
+    env_file: .env
+    depends_on: [minio]
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do sleep 2; done;
+      mc mb --ignore-existing "local/$AWS_BUCKET";
+      mc anonymous set none "local/$AWS_BUCKET";
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: [monitoring]
+    volumes: ["./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "prometheus_data:/prometheus"]
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: [monitoring]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes: ["grafana_data:/var/lib/grafana"]
+
+volumes:
+  postgres_data: {}
+  redis_data: {}
+  rabbitmq_data: {}
+  minio_data: {}
+  api_storage: {}
+  caddy_data: {}
+  caddy_config: {}
+  prometheus_data: {}
+  grafana_data: {}

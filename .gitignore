@@ -1,34 +1,19 @@
-# Sistema
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Logs
-*.log
-logs/
-
-# Ambiente
 .env
 .env.*
 !.env.example
-
-# Node/PHP/Python/Rust comuns
-node_modules/
-vendor/
+/vendor/
+/node_modules/
+/dist/
+/storage/*.key
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/storage/logs/*
 __pycache__/
-target/
-dist/
-build/
+.pytest_cache/
+.venv/
 coverage/
-
-# IDE
-.vscode/
-.idea/
-
-# Docker local
-docker-compose.override.yml
-
-# Temporarios
-tmp/
-temp/
-*.tmp
+.DS_Store
+*.log
+backups/*
+!backups/.gitkeep

@@ -1,0 +1,14 @@
+name: Regra fiscal
+about: Propor inclusão ou alteração de regra
+labels: [fiscal]
+body:
+  - type: input
+    attributes: {label: Código da regra}
+  - type: textarea
+    attributes: {label: Fundamento e fonte oficial}
+    validations: {required: true}
+  - type: input
+    attributes: {label: Início de vigência}
+  - type: textarea
+    attributes: {label: Cenários e resultados esperados}
+    validations: {required: true}

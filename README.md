@@ -1,45 +1,42 @@
-# auditorfiscal
+# Auditor Fiscal IBS/CBS
 
-Repositorio criado online e pre-configurado para:
+Plataforma web para importação, normalização, análise e auditoria de NF-e XML, com motor determinístico de IBS/CBS, validação NCM × CST × cClassTrib, conciliação documental, grids analíticos/sintéticos e relatórios PDF/Excel.
 
-- Codigo-fonte
-- Releases GitHub
-- Docker Images
-- GitHub Packages / GHCR
+## O catálogo NCM × ClassTrib
 
-## Visibilidade configurada
+A planilha `classificacao_trib_final.xlsx` **não é consultada em produção**. Seu conteúdo integral foi portado para arquivos de seed comprimidos e é carregado nas tabelas PostgreSQL por `FiscalCatalogSeeder`. A aplicação possui módulo administrativo para editar registros, importar novas planilhas, validar, comparar, aprovar e publicar versões. Cada auditoria congela o `catalog_version_id` utilizado.
 
-Repository: private
+## Inicialização rápida
 
-## Imagem Docker GHCR
+```bash
+cp .env.example .env
+# ajuste senhas, domínio e e-mail
+make install
+```
 
-ghcr.io/wkarts/auditaxmlfiscal:latest
+Acesse `https://$AUDITOR_DOMAIN`. O primeiro usuário administrador é criado pelo seeder conforme `ADMIN_EMAIL` e `ADMIN_PASSWORD`. O instalador bloqueia valores vazios ou placeholders em credenciais obrigatórias.
 
-## Pull da imagem
+Por padrão, `DEPLOY_MODE=ghcr` baixa as imagens oficiais publicadas em `ghcr.io/wkarts`. Para desenvolvimento local com compilação dos Dockerfiles, altere para `DEPLOY_MODE=source`.
 
-Se o package estiver publico:
+## Pipeline de imagens Docker
 
-docker pull ghcr.io/wkarts/auditaxmlfiscal:latest
+Em Pull Requests, os Dockerfiles são validados sem construir ou publicar as imagens completas. O build multi-arquitetura e a publicação no GHCR ocorrem somente após merge em `main`, em tags SemVer ou por execução manual. Consulte `docs/validacao-imagens-docker.md`.
 
-Se o package estiver privado:
+## Componentes
 
-echo SEU_TOKEN_GITHUB | docker login ghcr.io -u SEU_USUARIO --password-stdin
-docker pull ghcr.io/wkarts/auditaxmlfiscal:latest
+- Laravel API: autenticação, RBAC, empresas, catálogos, lotes, achados e relatórios.
+- Vue 3/TypeScript: painel, grids, detalhe XML e administração fiscal.
+- Python/FastAPI: parsing seguro, cálculo Decimal, regras, conciliação e geração de artefatos.
+- PostgreSQL, Redis, RabbitMQ, MinIO, Caddy e monitoramento opcional.
 
-## Observacoes
+Leia `docs/implantacao-vps.md`, `docs/arquitetura.md`, `docs/modelo-fiscal.md` e `docs/operacao.md`.
 
-- Releases seguem a visibilidade do repositorio.
-- O package Docker/GHCR so existe depois da primeira publicacao da imagem.
-- A imagem e vinculada ao repositorio usando o label OCI:
+## Validar o lote de referência
 
-org.opencontainers.image.source=https://github.com/wkarts/auditorfiscal
+O ZIP original não é armazenado no repositório. Para validar localmente os mesmos totais e achados:
 
-Apos a primeira publicacao, valide em:
+```bash
+python3 scripts/validate-reference-dataset.py /caminho/NotasFiscais.zip
+```
 
-GitHub -> Profile/Organization -> Packages -> Package settings
-
-Confira:
-
-Repository conectado
-Manage Actions access / Inherit access from source repository
-Visibility: Public ou Private
+O resultado esperado e os testes já executados estão documentados em `docs/validacao-entrega.md`.
