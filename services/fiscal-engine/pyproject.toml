@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
   "fastapi>=0.116,<1", "uvicorn[standard]>=0.35,<1", "pydantic-settings>=2.10,<3",
   "lxml>=6,<7", "sqlalchemy>=2.0,<3", "psycopg[binary]>=3.2,<4", "boto3>=1.40,<2",
-  "reportlab>=4.4,<5", "xlsxwriter>=3.2,<4", "python-multipart>=0.0.20,<1",
+  "reportlab>=4.4,<6", "xlsxwriter>=3.2,<4", "python-multipart>=0.0.20,<1",
   "prometheus-client>=0.22,<1"
 ]
 [project.optional-dependencies]
