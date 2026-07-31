@@ -41,7 +41,7 @@ if f'## [{version}]' not in text:
     changelog.write_text(text)
 PY
 
-./scripts/check-version.sh
+bash ./scripts/check-version.sh
 git add VERSION apps/web/package.json services/fiscal-engine/pyproject.toml \
   services/fiscal-engine/app/main.py CHANGELOG.md
 git commit -m "chore(release): prepara v$VERSION_VALUE"

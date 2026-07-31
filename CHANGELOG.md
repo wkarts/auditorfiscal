@@ -8,6 +8,10 @@
 - Correção da imagem PHP Alpine com `linux-headers` para compilar `ext-sockets`.
 - Validação e distribuição Docker restritas a `linux/amd64`.
 - Ajuste dos gates ShellCheck e Ruff ao estado real do código.
+- Correção da inicialização do MinIO Client com comando shell atômico.
+- PostgreSQL fixado na série 17 para preservar o layout de volume suportado.
+- Workflows passam a aguardar a saúde da infraestrutura antes de migrations e seeds.
+- Scripts de versão são executados explicitamente com Bash, sem depender do bit executável.
 - Pipeline automático de release baseado no arquivo `VERSION`.
 - Publicação das imagens API, Web e Fiscal Engine no GitHub Container Registry.
 - Verificação das imagens já publicadas antes da criação da GitHub Release.

@@ -91,10 +91,10 @@ jobs:
         run: docker compose build --pull --parallel api web fiscal-engine
 
       - name: Start infrastructure
-        run: docker compose up -d postgres redis rabbitmq minio
+        run: docker compose up -d --wait --wait-timeout 180 postgres redis rabbitmq minio
 
       - name: Initialize object storage
-        run: docker compose run --rm minio-init
+        run: docker compose run --rm --no-deps minio-init
 
       - name: Apply migrations and seeds
         run: docker compose run --rm api php artisan migrate:fresh --seed --force

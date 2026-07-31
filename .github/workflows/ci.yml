@@ -33,7 +33,7 @@ jobs:
 
       - name: Validate release version
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
-        run: ./scripts/check-version.sh
+        run: bash ./scripts/check-version.sh
 
   api:
     name: API (Laravel)

@@ -38,3 +38,12 @@ Após o merge em `main`, `.github/workflows/release.yml`:
 8. anexa ZIP, TAR.GZ, bundle de deploy, lista de imagens e SHA-256.
 
 Se uma etapa falhar, a GitHub Release não é criada.
+
+## Contratos de infraestrutura
+
+- A série PostgreSQL 17 é usada nesta release para manter o volume em
+  `/var/lib/postgresql/data` e evitar a mudança de layout introduzida pela imagem 18.
+- O job de integração usa `docker compose up --wait` e só executa migrations,
+  seeds e inicialização do bucket após todos os serviços essenciais estarem saudáveis.
+- Scripts versionados são chamados com `bash`, tornando o pipeline independente do
+  bit executável preservado pelo sistema operacional usado para preparar o commit.
