@@ -3,14 +3,10 @@
 ## [Unreleased]
 
 ### Fixed
-- Corrige o Gitleaks usando allowlist global restrita e fingerprints históricos exatos.
-- Evita que documentação de validação recrie o falso positivo de senha administrativa.
-
-### Added
-- Publicação das imagens API, Web e Fiscal Engine no GitHub Container Registry.
-- Builds multi-arquitetura, cache, SBOM, proveniência e atestação OCI.
-- Deploy de produção por imagens GHCR com tag configurável e fallback para build local.
-
+- Corrige o build da imagem Laravel ao executar o Composer no mesmo ambiente PHP 8.4 da aplicação, com todas as extensões exigidas.
+- Remove a dependência da imagem enxuta `composer:2` como ambiente de resolução das dependências.
+- Atualiza as Docker Actions para versões baseadas em Node.js 24.
+- Adiciona validação preventiva dos insumos de build e `.dockerignore` da API.
 
 ## [1.0.0] - 2026-07-30
 
