@@ -23,7 +23,7 @@
     "laravel/sanctum": "^4.0",
     "league/flysystem-aws-s3-v3": "^3.0",
     "php": "^8.3",
-    "spatie/laravel-permission": "^7.0",
+    "spatie/laravel-permission": "^8.3",
     "vladimir-yuldashev/laravel-queue-rabbitmq": "^15.0"
   },
   "require-dev": {
