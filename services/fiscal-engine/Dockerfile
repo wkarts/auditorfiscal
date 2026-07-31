@@ -16,7 +16,9 @@ FROM python:3.13-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
       libpq5 libxml2 libxslt1.1 fontconfig ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app

@@ -15,6 +15,7 @@ ENV APP_ENV=production \
     COMPOSER_NO_AUDIT=1
 
 RUN set -eux; \
+    apk upgrade --no-cache; \
     apk add --no-cache \
         ca-certificates \
         curl \

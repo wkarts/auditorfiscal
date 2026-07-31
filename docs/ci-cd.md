@@ -13,6 +13,8 @@ A PR só pode ser mesclada quando forem aprovados:
 7. migração, seed, inicialização da stack e smoke test autenticado;
 8. Trivy sobre as três imagens construídas.
 
+As imagens executam atualização dos pacotes do sistema operacional durante o build. Vulnerabilidades com correção disponível permanecem bloqueantes; não são ignoradas pelo pipeline.
+
 A PR não publica imagens. Ela executa o mesmo Dockerfile que será usado na
 release, eliminando erros de Composer, NPM, PIP, extensões PHP e
 inicialização antes do merge.

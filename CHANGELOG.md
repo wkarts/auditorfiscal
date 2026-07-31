@@ -8,6 +8,8 @@
 - Correção da imagem PHP Alpine com `linux-headers` para compilar `ext-sockets`.
 - Validação e distribuição Docker restritas a `linux/amd64`.
 - Ajuste dos gates ShellCheck e Ruff ao estado real do código.
+- Atualização dos pacotes de sistema das imagens API, Web e Fiscal Engine antes da varredura Trivy.
+- Correção das 12 vulnerabilidades HIGH corrigíveis herdadas da imagem Nginx/Alpine.
 - Correção da inicialização do MinIO Client com comando shell atômico.
 - PostgreSQL fixado na série 17 para preservar o layout de volume suportado.
 - Workflows passam a aguardar a saúde da infraestrutura antes de migrations e seeds.
