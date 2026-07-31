@@ -1,4 +1,0 @@
-# Falsos positivos históricos confirmados nos logs do GitHub Actions.
-# O formato é o fingerprint exato emitido pelo Gitleaks.
-db0a4be30587ab5cc9c04440ca19308a056e6bac:docs/validacao-ci-2026-07-31.md:generic-api-key:35
-fff40ae4755c3feb73c043d6382f366f080d3207:.env.example:generic-api-key:8

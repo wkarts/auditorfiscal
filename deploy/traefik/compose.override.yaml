@@ -1,0 +1,19 @@
+services:
+  web:
+    ports: []
+    networks:
+      - default
+      - traefik-public
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NETWORK:-traefik-public}
+      traefik.http.routers.auditor-fiscal.rule: Host(`${AUDITOR_DOMAIN}`)
+      traefik.http.routers.auditor-fiscal.entrypoints: websecure
+      traefik.http.routers.auditor-fiscal.tls: "true"
+      traefik.http.routers.auditor-fiscal.tls.certresolver: ${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      traefik.http.services.auditor-fiscal.loadbalancer.server.port: "80"
+
+networks:
+  traefik-public:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik-public}

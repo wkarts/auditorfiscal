@@ -1,0 +1,6 @@
+# Copie este arquivo para .github/CODEOWNERS e substitua os exemplos
+# por usuários ou equipes que realmente existam no repositório.
+* @sua-organizacao/mantenedores
+/apps/api/database/seeders/data/ @sua-organizacao/fiscal
+/services/fiscal-engine/ @sua-organizacao/fiscal
+/.github/workflows/ @sua-organizacao/devops

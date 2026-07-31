@@ -1,0 +1,245 @@
+name: Container Validation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
+  COMPOSE_FILE: compose.yaml:deploy/ci/compose.ci.yaml
+
+jobs:
+  amd64:
+    name: Build, integrate and scan images (linux/amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Prepare isolated CI environment
+        shell: bash
+        run: |
+          cat > .env <<'ENV'
+          APP_NAME="Auditor Fiscal CI"
+          APP_ENV=testing
+          APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          APP_DEBUG=false
+          APP_URL=http://127.0.0.1:18081
+          APP_TIMEZONE=UTC
+          FRONTEND_URL=http://127.0.0.1:18081
+          ADMIN_EMAIL=admin@example.invalid
+          ADMIN_PASSWORD=ci-password
+          DEPLOY_MODE=source
+          GHCR_REGISTRY=ghcr.io
+          GHCR_NAMESPACE=example
+          AUDITOR_IMAGE_TAG=pr
+          COMPOSE_PROFILES=
+          APP_HTTP_BIND=127.0.0.1
+          APP_HTTP_PORT=18081
+          AUDITOR_DOMAIN=auditor.example.invalid
+          CADDY_EMAIL=admin@example.invalid
+          DB_CONNECTION=pgsql
+          DB_HOST=postgres
+          DB_PORT=5432
+          DB_DATABASE=auditor_fiscal
+          DB_USERNAME=auditor
+          DB_PASSWORD=ci-password
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          REDIS_PASSWORD=
+          CACHE_STORE=redis
+          SESSION_DRIVER=redis
+          QUEUE_CONNECTION=rabbitmq
+          RABBITMQ_HOST=rabbitmq
+          RABBITMQ_PORT=5672
+          RABBITMQ_USER=auditor
+          RABBITMQ_PASSWORD=ci-password
+          RABBITMQ_VHOST=/
+          FILESYSTEM_DISK=s3
+          AWS_ACCESS_KEY_ID=auditor
+          AWS_SECRET_ACCESS_KEY=ci-password
+          AWS_DEFAULT_REGION=us-east-1
+          AWS_BUCKET=auditor-fiscal-ci
+          AWS_ENDPOINT=http://minio:9000
+          AWS_USE_PATH_STYLE_ENDPOINT=true
+          FISCAL_ENGINE_URL=http://fiscal-engine:8000
+          FISCAL_ENGINE_TOKEN=ci-token
+          MAX_UPLOAD_MB=50
+          ZIP_MAX_FILES=1000
+          ZIP_MAX_UNCOMPRESSED_MB=256
+          MINIO_ROOT_USER=auditor
+          MINIO_ROOT_PASSWORD=ci-password
+          GRAFANA_ADMIN_USER=admin
+          GRAFANA_ADMIN_PASSWORD=ci-password
+          ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Validate resolved Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build all application images
+        run: docker compose build --pull --parallel api web fiscal-engine
+
+      - name: Start infrastructure
+        run: docker compose up -d postgres redis rabbitmq minio
+
+      - name: Initialize object storage
+        run: docker compose run --rm minio-init
+
+      - name: Apply migrations and seeds
+        run: docker compose run --rm api php artisan migrate:fresh --seed --force
+
+      - name: Start application services
+        run: docker compose up -d api web fiscal-engine
+
+      - name: Wait for application health endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          wait_url() {
+            local name="$1" url="$2"
+            for attempt in $(seq 1 90); do
+              if curl --fail --silent --show-error "$url" >/dev/null; then
+                echo "$name disponível em $url"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "Timeout aguardando $name em $url" >&2
+            return 1
+          }
+          wait_url API-live http://127.0.0.1:18080/api/v1/health/live
+          wait_url API-ready http://127.0.0.1:18080/api/v1/health/ready
+          wait_url Web http://127.0.0.1:18081/health
+          wait_url Fiscal-engine http://127.0.0.1:18082/health/live
+
+      - name: Run authenticated API smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(curl --fail --silent --show-error \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"admin@example.invalid","password":"ci-password","device_name":"ci"}' \
+            http://127.0.0.1:18080/api/v1/auth/login \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+          test -n "$TOKEN"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $TOKEN" \
+            http://127.0.0.1:18080/api/v1/catalogs \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert len(data["data"]) >= 1'
+
+      - name: Verify image runtime contracts
+        run: |
+          docker run --rm --entrypoint php auditor-fiscal/api:pr -m | grep -Fx sockets
+          docker run --rm --entrypoint php auditor-fiscal/api:pr -m | grep -Fx amqp
+          docker run --rm --entrypoint php auditor-fiscal/api:pr -m | grep -Fx redis
+          docker run --rm --entrypoint python auditor-fiscal/fiscal-engine:pr -c 'import app.main'
+          docker image inspect auditor-fiscal/api:pr auditor-fiscal/web:pr auditor-fiscal/fiscal-engine:pr >/dev/null
+
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: auditor-fiscal/api:pr
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Scan Web image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: auditor-fiscal/web:pr
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Scan Fiscal Engine image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: auditor-fiscal/fiscal-engine:pr
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+
+      - name: Publish release-candidate validation summary
+        if: success()
+        shell: bash
+        run: |
+          VERSION_VALUE="$(tr -d '[:space:]' < VERSION)"
+          {
+            echo "## Candidato v${VERSION_VALUE} validado em linux/amd64"
+            echo
+            echo "- API, Web e Fiscal Engine construídos integralmente"
+            echo "- PostgreSQL, Redis, RabbitMQ e MinIO inicializados"
+            echo "- migrations e seeds executados"
+            echo "- autenticação e catálogo validados"
+            echo "- imagens analisadas pelo Trivy"
+            echo "- publicação: somente após merge em main"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Print service logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+
+      - name: Stop integration stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  arm64:
+    name: Build ${{ matrix.component }} image (linux/arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: api
+            context: ./apps/api
+            dockerfile: ./apps/api/Dockerfile
+          - component: web
+            context: ./apps/web
+            dockerfile: ./apps/web/Dockerfile
+          - component: fiscal-engine
+            context: ./services/fiscal-engine
+            dockerfile: ./services/fiscal-engine/Dockerfile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+          cache-image: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build ARM64 image without publishing
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/arm64
+          push: false
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=pr-arm64-${{ matrix.component }}
+          cache-to: type=gha,mode=min,scope=pr-arm64-${{ matrix.component }}
+          provenance: false
+          sbom: false

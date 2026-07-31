@@ -1,42 +1,75 @@
 # Auditor Fiscal IBS/CBS
 
-Plataforma web para importação, normalização, análise e auditoria de NF-e XML, com motor determinístico de IBS/CBS, validação NCM × CST × cClassTrib, conciliação documental, grids analíticos/sintéticos e relatórios PDF/Excel.
+Plataforma web para importação e auditoria de NF-e XML, com validação de IBS,
+CBS, formação da base de cálculo, NCM, CST, cClassTrib, conciliação documental e
+geração de relatórios PDF/Excel.
 
-## O catálogo NCM × ClassTrib
+## Arquitetura
 
-A planilha `classificacao_trib_final.xlsx` **não é consultada em produção**. Seu conteúdo integral foi portado para arquivos de seed comprimidos e é carregado nas tabelas PostgreSQL por `FiscalCatalogSeeder`. A aplicação possui módulo administrativo para editar registros, importar novas planilhas, validar, comparar, aprovar e publicar versões. Cada auditoria congela o `catalog_version_id` utilizado.
+- **Laravel 13 / PHP 8.4**: API, autenticação, RBAC, empresas, catálogos, lotes e relatórios.
+- **Vue 3 / TypeScript**: dashboard, grids sintéticos e analíticos, detalhe do XML e administração.
+- **Python 3.13 / FastAPI**: parser XML, cálculos `Decimal`, regras fiscais, conciliações e relatórios.
+- **PostgreSQL, Redis, RabbitMQ e MinIO**: persistência, cache, filas e arquivos.
+- **Docker Compose**: desenvolvimento, produção, Dockge, Portainer e integração com CloudPanel.
 
-## Inicialização rápida
+## Catálogo NCM × ClassTrib
+
+A planilha original de parametrização não é consultada durante a execução. Seu
+conteúdo foi portado para seeds comprimidos e carregado no PostgreSQL. A área
+administrativa permite importar novas planilhas, revisar inconsistências, editar
+registros, criar revisões, aprovar e publicar versões. Cada auditoria registra o
+snapshot do catálogo utilizado.
+
+## Dados do repositório
+
+O repositório contém apenas dados sintéticos de demonstração. XMLs, relatórios e
+identificadores de clientes não devem ser versionados. Consulte `PRIVACY.md` e
+execute `python3 scripts/scan-repository-data.py` antes de cada commit.
+
+## Instalação rápida compilando localmente
 
 ```bash
 cp .env.example .env
-# ajuste senhas, domínio e e-mail
-make install
+# preencha todas as credenciais obrigatórias
+sed -i 's/^DEPLOY_MODE=.*/DEPLOY_MODE=source/' .env
+./scripts/install.sh
 ```
 
-Acesse `https://$AUDITOR_DOMAIN`. O primeiro usuário administrador é criado pelo seeder conforme `ADMIN_EMAIL` e `ADMIN_PASSWORD`. O instalador bloqueia valores vazios ou placeholders em credenciais obrigatórias.
+## Instalação usando imagens do GHCR
 
-Por padrão, `DEPLOY_MODE=ghcr` baixa as imagens oficiais publicadas em `ghcr.io/wkarts`. Para desenvolvimento local com compilação dos Dockerfiles, altere para `DEPLOY_MODE=source`.
-
-## Pipeline de imagens Docker
-
-Em Pull Requests, os Dockerfiles são validados sem construir ou publicar as imagens completas. O build multi-arquitetura e a publicação no GHCR ocorrem somente após merge em `main`, em tags SemVer ou por execução manual. Consulte `docs/validacao-imagens-docker.md`.
-
-## Componentes
-
-- Laravel API: autenticação, RBAC, empresas, catálogos, lotes, achados e relatórios.
-- Vue 3/TypeScript: painel, grids, detalhe XML e administração fiscal.
-- Python/FastAPI: parsing seguro, cálculo Decimal, regras, conciliação e geração de artefatos.
-- PostgreSQL, Redis, RabbitMQ, MinIO, Caddy e monitoramento opcional.
-
-Leia `docs/implantacao-vps.md`, `docs/arquitetura.md`, `docs/modelo-fiscal.md` e `docs/operacao.md`.
-
-## Validar o lote de referência
-
-O ZIP original não é armazenado no repositório. Para validar localmente os mesmos totais e achados:
+Depois que a release for publicada:
 
 ```bash
-python3 scripts/validate-reference-dataset.py /caminho/NotasFiscais.zip
+cp .env.example .env
+# configure GHCR_NAMESPACE, AUDITOR_IMAGE_TAG e credenciais
+sed -i 's/^DEPLOY_MODE=.*/DEPLOY_MODE=ghcr/' .env
+./scripts/install.sh
 ```
 
-O resultado esperado e os testes já executados estão documentados em `docs/validacao-entrega.md`.
+## CI, imagens e releases
+
+Em cada Pull Request, as três imagens são realmente construídas para
+`linux/amd64`, iniciadas em uma stack de integração, submetidas a smoke tests e
+escaneadas pelo Trivy. Também são construídas para `linux/arm64` sem publicação.
+
+Após o merge em `main`, a versão registrada em `VERSION` é construída para
+`amd64/arm64`, publicada no GHCR, verificada novamente a partir das imagens
+publicadas e só então transformada em GitHub Release com pacotes de implantação.
+
+## Documentação
+
+- `docs/arquitetura.md`
+- `docs/modelo-fiscal.md`
+- `docs/banco-e-seed.md`
+- `docs/ci-cd.md`
+- `docs/deploy/README.md`
+- `docs/deploy/ubuntu-docker.md`
+- `docs/operacao.md`
+
+## Demonstração sintética
+
+```bash
+python3 scripts/validate-demo-dataset.py
+```
+
+O arquivo `examples/NotasFiscais-demo.zip` é sintético e não possui validade fiscal.

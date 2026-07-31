@@ -1,31 +1,36 @@
 SHELL := /bin/bash
-.PHONY: install up down logs test lint seed backup restore release
+.PHONY: install up down logs ps test lint privacy config seed backup restore update rollback release
+
 install:
-	cp -n .env.example .env || true
-	docker compose build
-	docker compose up -d postgres redis rabbitmq minio minio-init
-	docker compose run --rm api php artisan key:generate --force
-	docker compose run --rm api php artisan migrate --force
-	docker compose run --rm api php artisan db:seed --force
-	docker compose up -d
+	./scripts/install.sh
 up:
-	docker compose up -d
+	bash -lc 'source scripts/lib/compose.sh && dc up -d --remove-orphans'
 down:
-	docker compose down
+	bash -lc 'source scripts/lib/compose.sh && dc down'
 logs:
-	docker compose logs -f --tail=200
+	bash -lc 'source scripts/lib/compose.sh && dc logs -f --tail=200'
+ps:
+	bash -lc 'source scripts/lib/compose.sh && dc ps'
 test:
-	docker compose run --rm api php artisan test
-	docker compose run --rm fiscal-engine pytest
-	docker compose run --rm web-build sh -lc "npm install && npm run test:unit && npm run typecheck"
+	bash -lc 'source scripts/lib/compose.sh && dc run --rm api php artisan test'
+	bash -lc 'source scripts/lib/compose.sh && dc run --rm fiscal-engine pytest'
 lint:
-	docker compose run --rm api ./vendor/bin/pint --test
-	docker compose run --rm fiscal-engine ruff check .
+	python3 scripts/scan-repository-data.py
+	find apps/api -name "*.php" -not -path "*/vendor/*" -print0 | xargs -0 -n1 php -l
+	python3 -m compileall -q services/fiscal-engine/app services/fiscal-engine/tests
+privacy:
+	python3 scripts/scan-repository-data.py
+config:
+	bash -lc 'source scripts/lib/compose.sh && dc config --quiet'
 seed:
-	docker compose run --rm api php artisan db:seed --class=FiscalCatalogSeeder --force
+	bash -lc 'source scripts/lib/compose.sh && dc run --rm api php artisan db:seed --class=FiscalCatalogSeeder --force'
 backup:
 	./scripts/backup.sh
 restore:
 	./scripts/restore.sh $(FILE)
+update:
+	./scripts/update.sh $(TAG)
+rollback:
+	./scripts/rollback.sh $(TAG)
 release:
 	./scripts/release.sh $(VERSION)

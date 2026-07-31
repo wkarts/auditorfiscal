@@ -3,9 +3,7 @@ name: Security
 on:
   pull_request:
   push:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
   schedule:
     - cron: '17 4 * * 1'
   workflow_dispatch:
@@ -21,7 +19,7 @@ env:
   GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
 jobs:
-  dependencies-and-filesystem:
+  filesystem:
     name: Trivy filesystem scan
     runs-on: ubuntu-latest
     steps:
@@ -53,7 +51,6 @@ jobs:
             -v "${{ github.workspace }}:/repo" \
             "${GITLEAKS_IMAGE}" dir /repo \
             --config /repo/.gitleaks.toml \
-            --gitleaks-ignore-path /repo/.gitleaksignore \
             --redact --no-banner --verbose
 
       - name: Scan commits introduced by pull request
@@ -64,7 +61,6 @@ jobs:
             "${GITLEAKS_IMAGE}" git /repo \
             --log-opts="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
             --config /repo/.gitleaks.toml \
-            --gitleaks-ignore-path /repo/.gitleaksignore \
             --redact --no-banner --verbose
 
       - name: Scan complete repository history
@@ -74,5 +70,4 @@ jobs:
             -v "${{ github.workspace }}:/repo" \
             "${GITLEAKS_IMAGE}" git /repo \
             --config /repo/.gitleaks.toml \
-            --gitleaks-ignore-path /repo/.gitleaksignore \
             --redact --no-banner --verbose
