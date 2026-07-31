@@ -8,10 +8,8 @@ if grep -q '^APP_KEY=$' .env; then
   sed -i "s|^APP_KEY=.*|APP_KEY=$KEY|" .env
 fi
 
-set -a
 # shellcheck disable=SC1091
-source .env
-set +a
+source "$(dirname "$0")/lib/compose.sh"
 
 required_secrets=(
   ADMIN_PASSWORD
@@ -39,11 +37,16 @@ if (( invalid != 0 )); then
   exit 1
 fi
 
-docker compose build
-docker compose up -d postgres redis rabbitmq minio minio-init
+if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
+  dc pull
+else
+  dc build --pull
+fi
+
+dc up -d postgres redis rabbitmq minio minio-init
 
 for i in {1..60}; do
-  if docker compose exec -T postgres pg_isready \
+  if dc exec -T postgres pg_isready \
     -U "${DB_USERNAME:-auditor}" \
     -d "${DB_DATABASE:-auditor_fiscal}" >/dev/null 2>&1; then
     break
@@ -51,7 +54,13 @@ for i in {1..60}; do
   sleep 2
 done
 
-docker compose run --rm api php artisan migrate --force
-docker compose run --rm api php artisan db:seed --force
-docker compose up -d --remove-orphans
+dc run --rm api php artisan migrate --force
+dc run --rm api php artisan db:seed --force
+
+if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
+  dc up -d --remove-orphans --no-build
+else
+  dc up -d --remove-orphans
+fi
+
 ./scripts/healthcheck.sh

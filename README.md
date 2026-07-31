@@ -16,6 +16,8 @@ make install
 
 Acesse `https://$AUDITOR_DOMAIN`. O primeiro usuário administrador é criado pelo seeder conforme `ADMIN_EMAIL` e `ADMIN_PASSWORD`. O instalador bloqueia valores vazios ou placeholders em credenciais obrigatórias.
 
+Por padrão, `DEPLOY_MODE=ghcr` baixa as imagens oficiais publicadas em `ghcr.io/wkarts`. Para desenvolvimento local com compilação dos Dockerfiles, altere para `DEPLOY_MODE=source`.
+
 ## Componentes
 
 - Laravel API: autenticação, RBAC, empresas, catálogos, lotes, achados e relatórios.

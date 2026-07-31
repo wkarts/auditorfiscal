@@ -32,7 +32,7 @@ docker compose -f compose.yaml -f compose.production.yaml config --quiet
 O scanner encontrou no histórico o placeholder antigo:
 
 ```text
-ADMIN_PASSWORD=troque-por-uma-senha-de-16-caracteres
+ADMIN_PASSWORD=<placeholder-historico>
 ```
 
 O valor não era uma credencial real, mas disparava a regra `generic-api-key`.
@@ -41,7 +41,8 @@ Correções:
 
 - o valor atual de `.env.example` passou a ser `replace-me`;
 - o instalador bloqueia placeholders e credenciais obrigatórias vazias;
-- `.gitleaks.toml` permite somente o padrão histórico, somente em `.env.example` e somente para a regra `generic-api-key`;
+- `.gitleaks.toml` restringe a exceção ao padrão histórico, aos dois caminhos documentados e à regra `generic-api-key`;
+- `.gitleaksignore` registra somente os dois fingerprints históricos confirmados;
 - o workflow informa explicitamente o arquivo de configuração ao Gitleaks.
 
 ### Aviso do teste Laravel

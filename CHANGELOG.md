@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Corrige o Gitleaks usando allowlist global restrita e fingerprints históricos exatos.
+- Evita que documentação de validação recrie o falso positivo de senha administrativa.
+
+### Added
+- Publicação das imagens API, Web e Fiscal Engine no GitHub Container Registry.
+- Builds multi-arquitetura, cache, SBOM, proveniência e atestação OCI.
+- Deploy de produção por imagens GHCR com tag configurável e fallback para build local.
+
+
 ## [1.0.0] - 2026-07-30
 
 - Entrega inicial integral do Auditor Fiscal IBS/CBS.

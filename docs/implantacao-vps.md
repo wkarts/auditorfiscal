@@ -30,12 +30,23 @@ nano .env
 ./scripts/install.sh
 ```
 
-Preencha senhas fortes, `AUDITOR_DOMAIN`, `CADDY_EMAIL`, `APP_URL`, `FRONTEND_URL`, `ADMIN_EMAIL` e `ADMIN_PASSWORD`. O Caddy solicita e renova o certificado TLS automaticamente.
+Preencha senhas fortes, `AUDITOR_DOMAIN`, `CADDY_EMAIL`, `APP_URL`, `FRONTEND_URL`, `ADMIN_EMAIL` e `ADMIN_PASSWORD`.
+
+Para implantar usando as imagens do GitHub Container Registry, mantenha:
+
+```dotenv
+DEPLOY_MODE=ghcr
+GHCR_REGISTRY=ghcr.io
+GHCR_NAMESPACE=wkarts
+AUDITOR_IMAGE_TAG=latest
+```
+
+Para uma release imutável, use `AUDITOR_IMAGE_TAG=1.0.0` em vez de `latest`. Se os pacotes forem privados, execute `docker login ghcr.io` antes do instalador. O Caddy solicita e renova o certificado TLS automaticamente.
 
 ## Verificação
 
 ```bash
-docker compose ps
+docker compose -f compose.yaml -f compose.production.yaml ps
 curl -fsS https://SEU_DOMINIO/api/v1/health/live
 curl -fsS https://SEU_DOMINIO/api/v1/health/ready
 ./scripts/healthcheck.sh
@@ -45,13 +56,13 @@ curl -fsS https://SEU_DOMINIO/api/v1/health/ready
 O serviço `worker` executa filas `high,default,reports`; `scheduler` executa o Laravel Scheduler. Para ampliar capacidade:
 
 ```bash
-docker compose up -d --scale worker=4
+docker compose -f compose.yaml -f compose.production.yaml up -d --scale worker=4 --no-build
 ```
 
 ## Monitoramento
 
 ```bash
-docker compose --profile monitoring up -d
+docker compose -f compose.yaml -f compose.production.yaml --profile monitoring up -d --no-build
 ```
 
 Restrinja o acesso ao Grafana por VPN, firewall ou proxy autenticado. O endpoint de métricas do motor é interno.
