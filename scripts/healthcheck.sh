@@ -17,7 +17,9 @@ for attempt in $(seq 1 60); do
     echo "Stack operacional em $URL"
     exit 0
   fi
-  sleep 2
+  if (( attempt < 60 )); then
+    sleep 2
+  fi
 done
 
 echo "A interface não respondeu em $URL" >&2

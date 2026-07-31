@@ -30,6 +30,7 @@ RUN set -eux; \
         icu-dev \
         libxml2-dev \
         libzip-dev \
+        linux-headers \
         oniguruma-dev \
         postgresql-dev \
         rabbitmq-c-dev; \

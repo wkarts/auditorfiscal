@@ -5,7 +5,9 @@
 ### Corrigido
 
 - Validação completa das imagens Docker em Pull Requests, com build AMD64, smoke tests e Trivy.
-- Build adicional ARM64 antes do merge para evitar falhas exclusivas de arquitetura.
+- Correção da imagem PHP Alpine com `linux-headers` para compilar `ext-sockets`.
+- Validação e distribuição Docker restritas a `linux/amd64`.
+- Ajuste dos gates ShellCheck e Ruff ao estado real do código.
 - Pipeline automático de release baseado no arquivo `VERSION`.
 - Publicação das imagens API, Web e Fiscal Engine no GitHub Container Registry.
 - Verificação das imagens já publicadas antes da criação da GitHub Release.

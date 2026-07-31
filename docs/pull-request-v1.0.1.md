@@ -12,7 +12,7 @@
 ## Objetivo
 
 Entregar a versão 1.0.1 com validação real das imagens Docker antes do merge,
-publicação multi-arquitetura no GitHub Container Registry após o merge, criação
+publicação AMD64 no GitHub Container Registry após o merge, criação
 automática da GitHub Release e remoção de dados pessoais ou referências de
 clientes do código e do histórico distribuído.
 
@@ -27,7 +27,6 @@ clientes do código e do histórico distribuído.
 - valida healthchecks, autenticação e consulta do catálogo;
 - verifica extensões PHP e importação do motor Python;
 - executa Trivy em cada imagem;
-- constrói as três imagens para `linux/arm64` sem publicá-las;
 - não considera apenas `docker build --check`, pois essa operação não executa
   as instruções `RUN` dos Dockerfiles.
 
@@ -36,7 +35,7 @@ clientes do código e do histórico distribuído.
 Após o merge em `main`:
 
 - valida versão, changelog, privacidade, scripts, Compose e testes;
-- constrói imagens AMD64 e ARM64;
+- constrói imagens AMD64;
 - publica API, Web e Fiscal Engine no GHCR;
 - gera tags SemVer, major/minor, major, `latest` e SHA;
 - gera SBOM, proveniência e atestações;

@@ -13,7 +13,7 @@
 - [ ] Testes API
 - [ ] Testes do motor fiscal
 - [ ] Typecheck e testes web
-- [ ] Builds Docker AMD64/ARM64
+- [ ] Builds Docker AMD64
 - [ ] Smoke test da stack
 - [ ] Migration e rollback avaliados
 - [ ] Segurança, privacidade e LGPD avaliadas

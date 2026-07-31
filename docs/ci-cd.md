@@ -11,11 +11,10 @@ A PR só pode ser mesclada quando forem aprovados:
 5. contrato de versão;
 6. build real das imagens API, Web e Fiscal Engine em `linux/amd64`;
 7. migração, seed, inicialização da stack e smoke test autenticado;
-8. Trivy sobre as três imagens construídas;
-9. build das três imagens em `linux/arm64`.
+8. Trivy sobre as três imagens construídas.
 
 A PR não publica imagens. Ela executa o mesmo Dockerfile que será usado na
-release, eliminando erros de Composer, NPM, PIP, extensões PHP, arquitetura e
+release, eliminando erros de Composer, NPM, PIP, extensões PHP e
 inicialização antes do merge.
 
 ## Release automática
@@ -30,7 +29,7 @@ não publicada. Use:
 Após o merge em `main`, `.github/workflows/release.yml`:
 
 1. valida versão, changelog e privacidade;
-2. cria imagens `linux/amd64` e `linux/arm64`;
+2. cria imagens `linux/amd64`;
 3. publica as imagens no GHCR;
 4. gera SBOM, proveniência e atestações;
 5. baixa as imagens publicadas em um host limpo;
