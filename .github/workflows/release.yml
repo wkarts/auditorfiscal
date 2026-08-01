@@ -168,6 +168,7 @@ jobs:
           docker compose -f compose.yaml -f compose.production.yaml config --quiet
           docker compose -f compose.yaml -f deploy/ci/compose.ci.yaml config --quiet
           docker compose -f compose.yaml -f compose.production.yaml -f deploy/ci/compose.release.yaml config --quiet
+          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config --quiet
 
           EXPECTED_PREFIX="ghcr.io/${{ needs.contract.outputs.namespace }}"
           VERSION_VALUE="${{ needs.contract.outputs.version }}"
@@ -222,6 +223,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Wait for immutable API base publication
+        if: matrix.component == 'api'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_IMAGE="ghcr.io/${{ needs.contract.outputs.namespace }}/auditorfiscal-api-base:php8.4-v1"
+          for attempt in $(seq 1 60); do
+            if docker buildx imagetools inspect "$BASE_IMAGE" >/dev/null 2>&1; then
+              exit 0
+            fi
+            echo "Aguardando publicação de $BASE_IMAGE ($attempt/60)"
+            sleep 10
+          done
+          echo "Imagem-base não publicada: $BASE_IMAGE" >&2
+          exit 1
+
       - name: Extract OCI metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -254,6 +271,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=release-${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}
+          build-args: |
+            BASE_IMAGE=ghcr.io/${{ needs.contract.outputs.namespace }}/auditorfiscal-api-base:php8.4-v1
           provenance: mode=max
           sbom: true
 
