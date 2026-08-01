@@ -49,3 +49,32 @@ Se uma etapa falhar, a GitHub Release não é criada.
   seeds e inicialização do bucket após todos os serviços essenciais estarem saudáveis.
 - Scripts versionados são chamados com `bash`, tornando o pipeline independente do
   bit executável preservado pelo sistema operacional usado para preparar o commit.
+
+## Imagem-base versionada da API
+
+A compilação das extensões PHP/PECL é estável e cara; por isso somente a API usa
+`ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1`. Node e Python continuam com
+suas imagens oficiais e caches de dependências: suas dependências nativas são
+menores/diferentes e uma base comum aumentaria tamanho e acoplamento. A base não
+contém código, `composer.json` nem dependências da aplicação.
+
+O workflow `API Base Image` publica `linux/amd64` e `linux/arm64`, usa Buildx e
+cache GHA, gera SBOM/provenance, atesta e bloqueia vulnerabilidades altas/críticas
+corrigíveis. Ele executa somente quando `docker/base/api.Dockerfile`,
+`docker/base/versions.env` ou o próprio workflow muda, ou por **Actions > API
+Base Image > Run workflow**. A autenticação usa exclusivamente `GITHUB_TOKEN`
+com permissões mínimas declaradas.
+
+Para atualizar, altere runtime/toolchain no Dockerfile e incremente
+`API_BASE_VERSION` em `docker/base/versions.env`; tags publicadas são imutáveis e
+não há `latest`. Após publicar e validar, atualize `API_BASE_IMAGE` e o argumento
+do workflow de release. Correções de segurança seguem o mesmo fluxo, mesmo sem
+mudança de versão do PHP. Para forçar uma reconstrução, incremente
+`API_BASE_VERSION`, faça commit e dispare o workflow manualmente. O workflow
+recusa sobrescrever tags existentes; a tag `sha-<commit completo>` preserva
+rastreabilidade.
+
+Rollback não reconstrói a base: restaure `API_BASE_IMAGE`/`BASE_IMAGE` para uma
+tag versionada anterior, reconstrua as imagens finais e publique uma nova versão
+da aplicação. O cache `type=gha` acelera PRs/releases, mas nunca substitui a
+imagem-base referenciada pelo build.

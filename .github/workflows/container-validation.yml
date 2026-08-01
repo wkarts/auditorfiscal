@@ -87,8 +87,17 @@ jobs:
       - name: Validate resolved Compose configuration
         run: docker compose config --quiet
 
+      - name: Build reusable API base with GHA cache
+        run: |
+          docker buildx build \
+            --file docker/base/api.Dockerfile \
+            --tag ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1 \
+            --cache-from type=gha,scope=pr-api-base \
+            --cache-to type=gha,mode=max,scope=pr-api-base \
+            --load .
+
       - name: Build all application images
-        run: docker compose build --pull --parallel api web fiscal-engine
+        run: docker compose build --parallel api web fiscal-engine
 
       - name: Start infrastructure
         run: docker compose up -d --wait --wait-timeout 180 postgres redis rabbitmq minio

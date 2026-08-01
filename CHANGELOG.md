@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0] - 2026-08-01
+
+### Adicionado
+
+- Isolamento de stacks Docker por projeto, prefixo de recursos e portas configuráveis.
+- Imagem-base versionada da API, workflow multi-arquitetura, SBOM, provenance, attestation e scan.
+- Validação automatizada de duas instâncias Dockge simultâneas e documentação de rollback.
+
+### Alterado
+
+- Imagens auxiliares do Dockge passam a aceitar tags parametrizadas e versionadas.
+- Builds da API reutilizam PHP, Composer e extensões nativas sem incorporar código da aplicação na base.
+
 ## [1.0.1] - 2026-07-31
 
 ### Corrigido
