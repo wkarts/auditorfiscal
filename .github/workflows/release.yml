@@ -335,7 +335,7 @@ jobs:
           DB_PASSWORD=release-ci-password
           REDIS_HOST=auditor-fiscal-redis
           REDIS_PORT=6379
-          REDIS_PASSWORD=
+          REDIS_PASSWORD=release-ci-password
           CACHE_STORE=redis
           SESSION_DRIVER=redis
           QUEUE_CONNECTION=rabbitmq
@@ -351,7 +351,7 @@ jobs:
           AWS_BUCKET=auditor-fiscal-release-ci
           AWS_ENDPOINT=http://auditor-fiscal-minio:9000
           AWS_USE_PATH_STYLE_ENDPOINT=true
-          FISCAL_ENGINE_URL=http://auditor-fiscal-fiscal-engine:8000
+          FISCAL_ENGINE_URL=http://auditor-fiscal-engine:8000
           FISCAL_ENGINE_TOKEN=release-ci-token
           MAX_UPLOAD_MB=50
           ZIP_MAX_FILES=1000
@@ -380,7 +380,7 @@ jobs:
           fi
 
       - name: Pull published images
-        run: docker compose pull --policy always auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
+        run: docker compose pull --policy always auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 
       - name: Start infrastructure
         run: docker compose up -d --wait --wait-timeout 180 auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio
@@ -397,7 +397,7 @@ jobs:
         run: docker compose run --rm --no-deps auditor-fiscal-api php artisan migrate:fresh --seed --force
 
       - name: Start published application images
-        run: docker compose up -d --no-build auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
+        run: docker compose up -d --no-build auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 
       - name: Verify release health and authentication
         shell: bash

@@ -26,8 +26,11 @@ RESOURCE_PREFIX=auditor-fiscal-cliente01
 APP_HTTP_PORT=8081
 ```
 
-Preencha também `APP_KEY`, senhas, tokens e URLs no `.env` local, nunca no
-Compose ou no Git. `IMAGE_NAMESPACE=wkarts` e `APP_IMAGE_TAG` selecionam as
+Preencha senhas, tokens e URLs no `.env` local, nunca no Compose ou no Git.
+`APP_KEY` pode ficar vazio apenas no primeiro deploy: a API gera uma chave forte
+em `./api_storage/.app_key`, com escrita atômica e permissão restrita, e todos os
+processos reutilizam esse mesmo arquivo. Inclua-o no backup; perdê-lo invalida
+sessões e dados criptografados. `IMAGE_NAMESPACE=wkarts` e `APP_IMAGE_TAG` selecionam as
 imagens publicadas. Se o package for privado, autentique o host com um token de
 leitura fornecido por variável/secret manager (`docker login ghcr.io`).
 
@@ -57,7 +60,7 @@ Repita o procedimento em outra pasta, usando, por exemplo,
 `COMPOSE_PROJECT_NAME=auditor-fiscal-cliente02`, `INSTANCE_NAME=cliente02`,
 `RESOURCE_PREFIX=auditor-fiscal-cliente02`, `AWS_BUCKET=auditor-fiscal-cliente02`
 e `APP_HTTP_PORT=8082`. Os hostnames internos (`auditor-fiscal-postgres`, `auditor-fiscal-redis`,
-`auditor-fiscal-rabbitmq`, `auditor-fiscal-minio` e `auditor-fiscal-fiscal-engine`) permanecem estáveis, mas só resolvem dentro da rede isolada.
+`auditor-fiscal-rabbitmq`, `auditor-fiscal-minio` e `auditor-fiscal-engine`) permanecem estáveis, mas só resolvem dentro da rede isolada.
 Somente a porta Web é publicada. Caso o perfil Caddy do Compose principal seja
 usado, altere também `CADDY_HTTP_PORT` e `CADDY_HTTPS_PORT`.
 

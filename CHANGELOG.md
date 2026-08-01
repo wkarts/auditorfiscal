@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.3] - 2026-08-01
+
+### Alterado
+
+- Contratos Compose e de ambiente sincronizados com a release corretiva.
+
+### Corrigido
+
+- Geração atômica e persistente de `APP_KEY` quando ausente no primeiro deploy.
+- Autenticação do Redis habilitada somente quando `REDIS_PASSWORD` é informado, com healthcheck equivalente.
+
 ## [1.1.2] - 2026-08-01
 
 ### Alterado
@@ -10,6 +21,7 @@
 ### Corrigido
 
 - Preparação explícita das permissões de `api_storage` antes de migrations em PRs, releases e rotinas operacionais.
+- Nome lógico do motor fiscal simplificado para `auditor-fiscal-engine` em todos os contratos internos.
 
 ## [1.1.1] - 2026-08-01
 

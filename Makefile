@@ -13,7 +13,7 @@ ps:
 	bash -lc 'source scripts/lib/compose.sh && dc ps'
 test:
 	bash -lc 'source scripts/lib/compose.sh && dc run --rm auditor-fiscal-api php artisan test'
-	bash -lc 'source scripts/lib/compose.sh && dc run --rm auditor-fiscal-fiscal-engine pytest'
+	bash -lc 'source scripts/lib/compose.sh && dc run --rm auditor-fiscal-engine pytest'
 lint:
 	python3 scripts/scan-repository-data.py
 	find apps/api -name "*.php" -not -path "*/vendor/*" -print0 | xargs -0 -n1 php -l

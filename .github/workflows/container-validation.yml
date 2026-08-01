@@ -54,7 +54,7 @@ jobs:
           DB_PASSWORD=ci-password
           REDIS_HOST=auditor-fiscal-redis
           REDIS_PORT=6379
-          REDIS_PASSWORD=
+          REDIS_PASSWORD=ci-password
           CACHE_STORE=redis
           SESSION_DRIVER=redis
           QUEUE_CONNECTION=rabbitmq
@@ -70,7 +70,7 @@ jobs:
           AWS_BUCKET=auditor-fiscal-ci
           AWS_ENDPOINT=http://auditor-fiscal-minio:9000
           AWS_USE_PATH_STYLE_ENDPOINT=true
-          FISCAL_ENGINE_URL=http://auditor-fiscal-fiscal-engine:8000
+          FISCAL_ENGINE_URL=http://auditor-fiscal-engine:8000
           FISCAL_ENGINE_TOKEN=ci-token
           MAX_UPLOAD_MB=50
           ZIP_MAX_FILES=1000
@@ -109,7 +109,7 @@ jobs:
           docker buildx inspect default | grep -Eq '^Driver:[[:space:]]+docker$'
 
       - name: Build all application images
-        run: docker compose build --parallel auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
+        run: docker compose build --parallel auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 
       - name: Start infrastructure
         run: docker compose up -d --wait --wait-timeout 180 auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio
@@ -118,6 +118,7 @@ jobs:
         run: |
           docker compose run --rm --no-deps auditor-fiscal-storage-init
           docker compose run --rm --no-deps --entrypoint /bin/sh auditor-fiscal-api -ec 'test -w /var/www/html/storage'
+          docker compose run --rm --no-deps -e APP_KEY= --entrypoint /bin/sh auditor-fiscal-api -ec '/usr/local/bin/entrypoint /bin/true; test -s /var/www/html/storage/.app_key'
 
       - name: Initialize object storage
         run: docker compose run --rm --no-deps auditor-fiscal-minio-init
@@ -126,7 +127,7 @@ jobs:
         run: docker compose run --rm --no-deps auditor-fiscal-api php artisan migrate:fresh --seed --force
 
       - name: Start application services
-        run: docker compose up -d auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
+        run: docker compose up -d auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 
       - name: Wait for application health endpoints
         shell: bash

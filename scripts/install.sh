@@ -38,9 +38,9 @@ fi
 dc config --quiet
 
 if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
-  dc pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
+  dc pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 else
-  dc build --pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
+  dc build --pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 fi
 
 dc up -d auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio

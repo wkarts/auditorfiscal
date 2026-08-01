@@ -36,7 +36,7 @@ services:
     pull_policy: always
     logging: *default_logging
 
-  auditor-fiscal-fiscal-engine:
+  auditor-fiscal-engine:
     image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-fiscal-engine:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
     logging: *default_logging

@@ -11,10 +11,10 @@ source "$(dirname "$0")/lib/compose.sh"
 
 if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
   export AUDITOR_IMAGE_TAG="${TAG#v}"
-  dc pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
+  dc pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
   dc up -d --remove-orphans --no-build
 else
-  dc build auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
+  dc build auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
   dc up -d --remove-orphans
 fi
 ./scripts/healthcheck.sh

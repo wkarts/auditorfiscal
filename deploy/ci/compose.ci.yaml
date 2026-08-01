@@ -7,7 +7,7 @@ services:
   auditor-fiscal-web:
     image: auditor-fiscal/web:pr
 
-  auditor-fiscal-fiscal-engine:
+  auditor-fiscal-engine:
     image: auditor-fiscal/fiscal-engine:pr
     ports:
       - "127.0.0.1:18082:8000"
