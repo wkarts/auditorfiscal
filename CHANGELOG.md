@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.1.2] - 2026-08-01
+
+### Alterado
+
+- Reserva automática de versão sem exigir `VERSIONING_TOKEN`, com revalidação explícita do novo SHA.
+- Validação de isolamento atualizada para bind mounts resolvidos em diretórios distintos por stack Dockge.
+
+### Corrigido
+
+- Preparação explícita das permissões de `api_storage` antes de migrations em PRs, releases e rotinas operacionais.
+
+## [1.1.1] - 2026-08-01
+
+### Alterado
+
+- Reserva automática da próxima versão patch disponível em Pull Requests para evitar reutilização de tags.
+- Sincronização de `VERSION`, metadados dos componentes, tags de deploy e changelog pelo mesmo contrato idempotente.
+- Persistência em bind mounts locais por stack e `env_file` compatível com versões do Compose embarcadas no Dockge.
+
+## [1.1.0] - 2026-08-01
+
+### Adicionado
+
+- Isolamento de stacks Docker por projeto, prefixo de recursos e portas configuráveis.
+- Imagem-base versionada da API, workflow multi-arquitetura, SBOM, provenance, attestation e scan.
+- Validação automatizada de duas instâncias Dockge simultâneas e documentação de rollback.
+
+### Alterado
+
+- Imagens auxiliares do Dockge passam a aceitar tags parametrizadas e versionadas.
+- Builds da API reutilizam PHP, Composer e extensões nativas sem incorporar código da aplicação na base.
+- Todos os serviços Compose e seus endereços DNS internos passam a usar o prefixo `auditor-fiscal-`.
+
 ## [1.0.1] - 2026-07-31
 
 ### Corrigido
