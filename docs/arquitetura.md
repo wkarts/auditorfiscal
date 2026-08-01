@@ -21,4 +21,4 @@ Internet → Caddy/TLS → Vue + Laravel API
 - O motor é idempotente para o mesmo arquivo, catálogo e versão de regra.
 
 ## Escalabilidade
-Workers Laravel podem ser escalados com `docker compose up -d --scale worker=4`. O motor fiscal é stateless e também pode receber múltiplas réplicas. PostgreSQL deve usar storage SSD e backups externos; MinIO pode ser substituído por S3 compatível.
+Workers Laravel podem ser escalados com `docker compose up -d --scale auditor-fiscal-worker=4`. O motor fiscal é stateless e também pode receber múltiplas réplicas. PostgreSQL deve usar storage SSD e backups externos; MinIO pode ser substituído por S3 compatível.
