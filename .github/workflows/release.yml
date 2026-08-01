@@ -159,11 +159,33 @@ jobs:
           sed -i 's|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=release-gate|' .env
           sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=release-gate|' .env
           sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=${{ needs.contract.outputs.namespace }}|' .env
+          sed -i 's|^AUDITOR_IMAGE_TAG=.*|AUDITOR_IMAGE_TAG=${{ needs.contract.outputs.version }}|' .env
       - name: Validate Compose contracts
+        shell: bash
         run: |
+          set -euo pipefail
           docker compose -f compose.yaml config --quiet
           docker compose -f compose.yaml -f compose.production.yaml config --quiet
           docker compose -f compose.yaml -f deploy/ci/compose.ci.yaml config --quiet
+          docker compose -f compose.yaml -f compose.production.yaml -f deploy/ci/compose.release.yaml config --quiet
+
+          EXPECTED_PREFIX="ghcr.io/${{ needs.contract.outputs.namespace }}"
+          VERSION_VALUE="${{ needs.contract.outputs.version }}"
+          mapfile -t RELEASE_IMAGES < <(
+            docker compose \
+              -f compose.yaml \
+              -f compose.production.yaml \
+              -f deploy/ci/compose.release.yaml \
+              config --images
+          )
+          printf '%s\n' "${RELEASE_IMAGES[@]}"
+          printf '%s\n' "${RELEASE_IMAGES[@]}" | grep -Fx "${EXPECTED_PREFIX}/auditorfiscal-api:${VERSION_VALUE}"
+          printf '%s\n' "${RELEASE_IMAGES[@]}" | grep -Fx "${EXPECTED_PREFIX}/auditorfiscal-web:${VERSION_VALUE}"
+          printf '%s\n' "${RELEASE_IMAGES[@]}" | grep -Fx "${EXPECTED_PREFIX}/auditorfiscal-fiscal-engine:${VERSION_VALUE}"
+          if printf '%s\n' "${RELEASE_IMAGES[@]}" | grep -Eq '^auditor-fiscal/'; then
+            echo 'O Compose de release resolveu uma imagem local de PR.' >&2
+            exit 1
+          fi
 
   publish:
     name: Build and publish ${{ matrix.component }}
@@ -248,7 +270,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      COMPOSE_FILE: compose.yaml:compose.production.yaml:deploy/ci/compose.ci.yaml
+      COMPOSE_FILE: compose.yaml:compose.production.yaml:deploy/ci/compose.release.yaml
+      GHCR_REGISTRY: ghcr.io
+      GHCR_NAMESPACE: ${{ needs.contract.outputs.namespace }}
+      AUDITOR_IMAGE_TAG: ${{ needs.contract.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -317,8 +342,25 @@ jobs:
           GRAFANA_ADMIN_PASSWORD=release-ci-password
           ENV
 
+      - name: Validate resolved published image names
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_PREFIX="${REGISTRY}/${GHCR_NAMESPACE}"
+          mapfile -t RESOLVED_IMAGES < <(docker compose config --images)
+          printf '%s\n' "${RESOLVED_IMAGES[@]}"
+
+          printf '%s\n' "${RESOLVED_IMAGES[@]}" | grep -Fx "${EXPECTED_PREFIX}/auditorfiscal-api:${AUDITOR_IMAGE_TAG}"
+          printf '%s\n' "${RESOLVED_IMAGES[@]}" | grep -Fx "${EXPECTED_PREFIX}/auditorfiscal-web:${AUDITOR_IMAGE_TAG}"
+          printf '%s\n' "${RESOLVED_IMAGES[@]}" | grep -Fx "${EXPECTED_PREFIX}/auditorfiscal-fiscal-engine:${AUDITOR_IMAGE_TAG}"
+
+          if printf '%s\n' "${RESOLVED_IMAGES[@]}" | grep -Eq '^auditor-fiscal/'; then
+            echo 'Falha: o Compose de verificação está apontando para imagens locais da PR.' >&2
+            exit 1
+          fi
+
       - name: Pull published images
-        run: docker compose pull api web fiscal-engine
+        run: docker compose pull --policy always api web fiscal-engine
 
       - name: Start infrastructure
         run: docker compose up -d --wait --wait-timeout 180 postgres redis rabbitmq minio
