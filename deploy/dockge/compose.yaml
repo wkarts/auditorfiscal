@@ -6,12 +6,18 @@ x-logging: &logging
   options:
     max-size: "${LOG_MAX_SIZE:-20m}"
     max-file: "${LOG_MAX_FILES:-5}"
+x-service-env: &service_env
+  - path: .env
+    # Permite que `compose config --env-file ...` valide o bundle antes de a
+    # instalação criar seu .env. No deploy, o Dockge mantém esse arquivo ao
+    # lado do compose.yaml e ele é carregado normalmente.
+    required: false
 
 services:
   api:
     image: *api_image
     restart: unless-stopped
-    env_file: .env
+    env_file: *service_env
     volumes: [api_storage:/var/www/html/storage]
     depends_on:
       postgres: {condition: service_healthy}
@@ -29,7 +35,7 @@ services:
   scheduler:
     image: *api_image
     restart: unless-stopped
-    env_file: .env
+    env_file: *service_env
     command: ["php", "artisan", "schedule:work"]
     volumes: [api_storage:/var/www/html/storage]
     depends_on:
@@ -39,7 +45,7 @@ services:
   worker:
     image: *api_image
     restart: unless-stopped
-    env_file: .env
+    env_file: *service_env
     command: ["php", "artisan", "queue:work", "rabbitmq", "--queue=high,default,reports", "--sleep=1", "--tries=3", "--timeout=3600", "--max-time=3600"]
     volumes: [api_storage:/var/www/html/storage]
     depends_on:
@@ -64,7 +70,7 @@ services:
   fiscal-engine:
     image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?Defina IMAGE_NAMESPACE}/auditorfiscal-fiscal-engine:${APP_IMAGE_TAG:-1.1.0}
     restart: unless-stopped
-    env_file: .env
+    env_file: *service_env
     environment:
       DATABASE_URL: postgresql+psycopg://${DB_USERNAME:-auditor}:${DB_PASSWORD}@postgres:${DB_PORT:-5432}/${DB_DATABASE:-auditor_fiscal}
     depends_on:
@@ -137,7 +143,7 @@ services:
   minio-init:
     image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}
     restart: "no"
-    env_file: .env
+    env_file: *service_env
     depends_on:
       minio: {condition: service_healthy}
     entrypoint: ["/bin/sh", "-ec"]

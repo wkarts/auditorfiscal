@@ -31,6 +31,16 @@ Compose ou no Git. `IMAGE_NAMESPACE=wkarts` e `APP_IMAGE_TAG` selecionam as
 imagens publicadas. Se o package for privado, autentique o host com um token de
 leitura fornecido por variável/secret manager (`docker login ghcr.io`).
 
+O `env_file` do Compose é marcado como opcional exclusivamente para permitir a
+validação estática do bundle antes da criação do `.env`. O deploy operacional
+continua exigindo o arquivo `/opt/stacks/<stack>/.env`; confirme sua existência e
+permissões antes de clicar em **Deploy**:
+
+```bash
+test -s .env
+chmod 600 .env
+```
+
 Na interface, use **Scan Stacks Folder**, abra a pasta criada e clique em
 **Deploy**. Inicialize os recursos de forma idempotente pelo terminal da stack:
 
