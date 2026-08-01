@@ -1,7 +1,9 @@
 name: "${COMPOSE_PROJECT_NAME:-auditor-fiscal}"
 
+# Contrato de nomenclatura: toda chave de serviço e toda referência DNS interna
+# deve iniciar com `auditor-fiscal-`. O CI valida este contrato via `config --services`.
 services:
-  caddy:
+  auditor-fiscal-caddy:
     image: caddy:2-alpine
     profiles: [edge-caddy]
     restart: unless-stopped
@@ -14,12 +16,12 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      api:
+      auditor-fiscal-api:
         condition: service_healthy
-      web:
+      auditor-fiscal-web:
         condition: service_healthy
 
-  api:
+  auditor-fiscal-api:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
@@ -30,13 +32,13 @@ services:
     volumes:
       - api_storage:/var/www/html/storage
     depends_on:
-      postgres:
+      auditor-fiscal-postgres:
         condition: service_healthy
-      redis:
+      auditor-fiscal-redis:
         condition: service_healthy
-      rabbitmq:
+      auditor-fiscal-rabbitmq:
         condition: service_healthy
-      minio:
+      auditor-fiscal-minio:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health/live"]
@@ -45,7 +47,7 @@ services:
       retries: 10
       start_period: 45s
 
-  scheduler:
+  auditor-fiscal-scheduler:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
@@ -57,10 +59,10 @@ services:
     volumes:
       - api_storage:/var/www/html/storage
     depends_on:
-      api:
+      auditor-fiscal-api:
         condition: service_healthy
 
-  worker:
+  auditor-fiscal-worker:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
@@ -81,12 +83,12 @@ services:
     volumes:
       - api_storage:/var/www/html/storage
     depends_on:
-      api:
+      auditor-fiscal-api:
         condition: service_healthy
-      fiscal-engine:
+      auditor-fiscal-fiscal-engine:
         condition: service_healthy
 
-  web:
+  auditor-fiscal-web:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
@@ -94,7 +96,7 @@ services:
     ports:
       - "${APP_HTTP_BIND:-127.0.0.1}:${APP_HTTP_PORT:-8080}:80"
     depends_on:
-      api:
+      auditor-fiscal-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
@@ -103,18 +105,18 @@ services:
       retries: 10
       start_period: 20s
 
-  fiscal-engine:
+  auditor-fiscal-fiscal-engine:
     build:
       context: ./services/fiscal-engine
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}
+      DATABASE_URL: postgresql+psycopg://${DB_USERNAME}:${DB_PASSWORD}@auditor-fiscal-postgres:5432/${DB_DATABASE}
     depends_on:
-      postgres:
+      auditor-fiscal-postgres:
         condition: service_healthy
-      minio:
+      auditor-fiscal-minio:
         condition: service_healthy
     healthcheck:
       test:
@@ -127,7 +129,7 @@ services:
       retries: 10
       start_period: 30s
 
-  postgres:
+  auditor-fiscal-postgres:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
@@ -142,7 +144,7 @@ services:
       timeout: 5s
       retries: 12
 
-  redis:
+  auditor-fiscal-redis:
     image: redis:8-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
@@ -154,7 +156,7 @@ services:
       timeout: 5s
       retries: 12
 
-  rabbitmq:
+  auditor-fiscal-rabbitmq:
     image: rabbitmq:4-management-alpine
     restart: unless-stopped
     environment:
@@ -169,7 +171,7 @@ services:
       retries: 18
       start_period: 20s
 
-  minio:
+  auditor-fiscal-minio:
     image: minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -184,28 +186,28 @@ services:
       timeout: 5s
       retries: 12
 
-  minio-init:
+  auditor-fiscal-minio-init:
     image: minio/mc:latest
     restart: "no"
     env_file: .env
     depends_on:
-      minio:
+      auditor-fiscal-minio:
         condition: service_healthy
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc alias set local http://auditor-fiscal-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing "local/$${AWS_BUCKET}"
         mc anonymous set none "local/$${AWS_BUCKET}"
 
-  prometheus:
+  auditor-fiscal-prometheus:
     image: prom/prometheus:latest
     profiles: [monitoring]
     volumes:
       - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
 
-  grafana:
+  auditor-fiscal-grafana:
     image: grafana/grafana:latest
     profiles: [monitoring]
     environment:

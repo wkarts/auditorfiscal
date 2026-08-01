@@ -1,4 +1,4 @@
 global: {scrape_interval: 15s}
 scrape_configs:
-  - job_name: fiscal-engine
-    static_configs: [{targets: ["fiscal-engine:8000"]}]
+  - job_name: auditor-fiscal-fiscal-engine
+    static_configs: [{targets: ["auditor-fiscal-fiscal-engine:8000"]}]

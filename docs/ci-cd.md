@@ -28,6 +28,22 @@ não publicada. Use:
 ./scripts/release.sh 1.0.2
 ```
 
+Se a versão da PR já tiver uma tag publicada, o job **Repository contracts**
+calcula o próximo patch após a maior tag SemVer, sincroniza todos os metadados e
+faz um commit na própria branch da PR com a identidade oficial do repositório.
+O novo evento `synchronize` reexecuta os gates usando o commit versionado. O
+processo é idempotente: uma versão sem tag não é alterada. Para executar o mesmo
+fluxo localmente, use `./scripts/release.sh --next`. Pull Requests originadas de
+forks não recebem permissão de escrita; nesses casos, o colaborador deve executar
+o comando local e enviar o commit para sua branch.
+
+Cadastre em **Settings > Secrets and variables > Actions** o secret
+`VERSIONING_TOKEN`, contendo um token fine-grained de @wkarts limitado a este
+repositório, com acesso **Contents: Read and write**. Esse token é necessário
+porque commits feitos pelo `GITHUB_TOKEN` não iniciam uma nova execução de
+workflow; o token dedicado gera o evento `synchronize` que valida o novo SHA.
+Não conceda permissões de administração, packages ou outros repositórios.
+
 Após o merge em `main`, `.github/workflows/release.yml`:
 
 1. valida versão, changelog e privacidade;

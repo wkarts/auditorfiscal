@@ -327,18 +327,18 @@ jobs:
           AUDITOR_DOMAIN=auditor.example.invalid
           CADDY_EMAIL=admin@example.invalid
           DB_CONNECTION=pgsql
-          DB_HOST=postgres
+          DB_HOST=auditor-fiscal-postgres
           DB_PORT=5432
           DB_DATABASE=auditor_fiscal
           DB_USERNAME=auditor
           DB_PASSWORD=release-ci-password
-          REDIS_HOST=redis
+          REDIS_HOST=auditor-fiscal-redis
           REDIS_PORT=6379
           REDIS_PASSWORD=
           CACHE_STORE=redis
           SESSION_DRIVER=redis
           QUEUE_CONNECTION=rabbitmq
-          RABBITMQ_HOST=rabbitmq
+          RABBITMQ_HOST=auditor-fiscal-rabbitmq
           RABBITMQ_PORT=5672
           RABBITMQ_USER=auditor
           RABBITMQ_PASSWORD=release-ci-password
@@ -348,9 +348,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY=release-ci-password
           AWS_DEFAULT_REGION=us-east-1
           AWS_BUCKET=auditor-fiscal-release-ci
-          AWS_ENDPOINT=http://minio:9000
+          AWS_ENDPOINT=http://auditor-fiscal-minio:9000
           AWS_USE_PATH_STYLE_ENDPOINT=true
-          FISCAL_ENGINE_URL=http://fiscal-engine:8000
+          FISCAL_ENGINE_URL=http://auditor-fiscal-fiscal-engine:8000
           FISCAL_ENGINE_TOKEN=release-ci-token
           MAX_UPLOAD_MB=50
           ZIP_MAX_FILES=1000
@@ -379,19 +379,19 @@ jobs:
           fi
 
       - name: Pull published images
-        run: docker compose pull --policy always api web fiscal-engine
+        run: docker compose pull --policy always auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
 
       - name: Start infrastructure
-        run: docker compose up -d --wait --wait-timeout 180 postgres redis rabbitmq minio
+        run: docker compose up -d --wait --wait-timeout 180 auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio
 
       - name: Initialize object storage
-        run: docker compose run --rm --no-deps minio-init
+        run: docker compose run --rm --no-deps auditor-fiscal-minio-init
 
       - name: Apply migrations and seeds from published API image
-        run: docker compose run --rm --no-deps api php artisan migrate:fresh --seed --force
+        run: docker compose run --rm --no-deps auditor-fiscal-api php artisan migrate:fresh --seed --force
 
       - name: Start published application images
-        run: docker compose up -d --no-build api web fiscal-engine
+        run: docker compose up -d --no-build auditor-fiscal-api auditor-fiscal-web auditor-fiscal-fiscal-engine
 
       - name: Verify release health and authentication
         shell: bash

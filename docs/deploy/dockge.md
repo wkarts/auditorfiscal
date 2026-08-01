@@ -45,9 +45,9 @@ Na interface, use **Scan Stacks Folder**, abra a pasta criada e clique em
 **Deploy**. Inicialize os recursos de forma idempotente pelo terminal da stack:
 
 ```bash
-docker compose run --rm minio-init
-docker compose run --rm api php artisan migrate --force
-docker compose run --rm api php artisan db:seed --force
+docker compose run --rm auditor-fiscal-minio-init
+docker compose run --rm auditor-fiscal-api php artisan migrate --force
+docker compose run --rm auditor-fiscal-api php artisan db:seed --force
 ```
 
 ## Várias instâncias no mesmo host
@@ -55,8 +55,8 @@ docker compose run --rm api php artisan db:seed --force
 Repita o procedimento em outra pasta, usando, por exemplo,
 `COMPOSE_PROJECT_NAME=auditor-fiscal-cliente02`, `INSTANCE_NAME=cliente02`,
 `RESOURCE_PREFIX=auditor-fiscal-cliente02`, `AWS_BUCKET=auditor-fiscal-cliente02`
-e `APP_HTTP_PORT=8082`. Os hostnames internos (`postgres`, `redis`, `rabbitmq`, `minio` e
-`fiscal-engine`) permanecem estáveis, mas só resolvem dentro da rede isolada.
+e `APP_HTTP_PORT=8082`. Os hostnames internos (`auditor-fiscal-postgres`, `auditor-fiscal-redis`,
+`auditor-fiscal-rabbitmq`, `auditor-fiscal-minio` e `auditor-fiscal-fiscal-engine`) permanecem estáveis, mas só resolvem dentro da rede isolada.
 Somente a porta Web é publicada. Caso o perfil Caddy do Compose principal seja
 usado, altere também `CADDY_HTTP_PORT` e `CADDY_HTTPS_PORT`.
 
