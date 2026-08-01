@@ -96,6 +96,18 @@ jobs:
             --cache-to type=gha,mode=max,scope=pr-api-base \
             --load .
 
+      - name: Select Docker image-store builder for dependent builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          # setup-buildx seleciona um builder docker-container. Embora --load
+          # exporte a base para o image store do daemon, esse builder isolado
+          # tentaria resolver o FROM novamente no GHCR. O driver docker reutiliza
+          # a imagem local carregada e mantém a PR independente do package remoto.
+          docker image inspect ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1 >/dev/null
+          docker buildx use default
+          test "$(docker buildx inspect --format '{{.Driver}}')" = docker
+
       - name: Build all application images
         run: docker compose build --parallel api web fiscal-engine
 
