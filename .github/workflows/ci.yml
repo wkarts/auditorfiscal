@@ -33,6 +33,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSIONING_TOKEN: ${{ secrets.VERSIONING_TOKEN }}
+          PR_HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
           bash ./scripts/auto-version.sh
@@ -43,17 +44,17 @@ jobs:
           git config user.name 'Wallace Kleiton'
           git config user.email 'wkarts@gmail.com'
           git add \
-            VERSION CHANGELOG.md .env.example deploy/dockge/compose.yaml \
+            VERSION CHANGELOG.md \
             apps/web/package.json services/fiscal-engine/pyproject.toml \
             services/fiscal-engine/app/main.py
           git commit -m "chore(release): reserva v${VERSION_VALUE}"
           PUSH_TOKEN="${VERSIONING_TOKEN:-$GH_TOKEN}"
           git remote set-url origin "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push origin "HEAD:${{ github.head_ref }}"
+          git push origin "HEAD:${PR_HEAD_REF}"
           if [[ -z "$VERSIONING_TOKEN" ]]; then
             # Pushes do GITHUB_TOKEN não geram eventos recursivos. O dispatch
             # explícito valida o novo SHA sem exigir um secret adicional.
-            gh workflow run ci.yml --ref "${{ github.head_ref }}"
+            gh workflow run ci.yml --ref "${PR_HEAD_REF}"
           fi
 
       - name: Validate repository privacy
@@ -67,7 +68,19 @@ jobs:
 
       - name: Validate release version
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
-        run: bash ./scripts/check-version.sh
+        run: |
+          set -euo pipefail
+          bash ./scripts/check-version.sh --ci
+
+          # Regressão: tags de deploy podem ser fixadas para rollback sem que o
+          # contrato exija igualdade com VERSION.
+          cp .env.example /tmp/env.example.original
+          trap 'cp /tmp/env.example.original .env.example' EXIT
+          sed -i \
+            -e 's/^AUDITOR_IMAGE_TAG=.*/AUDITOR_IMAGE_TAG=9.9.9/' \
+            -e 's/^APP_IMAGE_TAG=.*/APP_IMAGE_TAG=9.9.9/' \
+            .env.example
+          bash ./scripts/check-version.sh --ci
 
   api:
     name: API (Laravel)
@@ -185,8 +198,29 @@ jobs:
           sed -i 's|^FISCAL_ENGINE_TOKEN=.*|FISCAL_ENGINE_TOKEN=ci-only|' .env
           sed -i 's|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=ci-only|' .env
           sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=ci-only|' .env
-          sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=example|' .env
+          sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=wkarts|' .env
           cp .env deploy/dockge/.env
+
+      - name: Validate ready-to-use Compose image defaults
+        shell: bash
+        run: |
+          set -euo pipefail
+          if rg -n 'Defina|\$\{[^}]*:\?' --glob '*compose*.yaml' --glob '*compose*.yml'; then
+            echo 'Compose não pode exigir variáveis durante a construção da configuração.' >&2
+            exit 1
+          fi
+          docker compose -f compose.yaml -f compose.production.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-api:latest'
+          docker compose -f compose.yaml -f compose.production.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-web:latest'
+          docker compose -f compose.yaml -f compose.production.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-fiscal-engine:latest'
+          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-api:latest'
+          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-web:latest'
+          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-fiscal-engine:latest'
 
       - name: Validate Compose files
         shell: bash

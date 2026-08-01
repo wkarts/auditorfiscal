@@ -58,8 +58,8 @@ if f'## [{version}]' not in text:
     changelog.write_text(text)
 PY
 
-bash ./scripts/check-version.sh
-git add VERSION CHANGELOG.md .env.example deploy/dockge/compose.yaml \
+bash ./scripts/check-version.sh --local
+git add VERSION CHANGELOG.md \
   apps/web/package.json services/fiscal-engine/pyproject.toml \
   services/fiscal-engine/app/main.py
 if git diff --cached --quiet; then

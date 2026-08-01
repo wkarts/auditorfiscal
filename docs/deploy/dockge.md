@@ -30,8 +30,9 @@ Preencha senhas, tokens e URLs no `.env` local, nunca no Compose ou no Git.
 `APP_KEY` pode ficar vazio apenas no primeiro deploy: a API gera uma chave forte
 em `./api_storage/.app_key`, com escrita atômica e permissão restrita, e todos os
 processos reutilizam esse mesmo arquivo. Inclua-o no backup; perdê-lo invalida
-sessões e dados criptografados. `IMAGE_NAMESPACE=wkarts` e `APP_IMAGE_TAG` selecionam as
-imagens publicadas. Se o package for privado, autentique o host com um token de
+sessões e dados criptografados. `IMAGE_NAMESPACE=wkarts` seleciona as imagens
+oficiais e `APP_IMAGE_TAG=latest` acompanha automaticamente a release mais recente.
+Se o package for privado, autentique o host com um token de
 leitura fornecido por variável/secret manager (`docker login ghcr.io`).
 
 O `env_file` usa o formato de lista de strings compatível com versões do Compose
@@ -83,7 +84,8 @@ os diretórios manualmente; para mover dados, use os procedimentos em
 
 ## Atualização e rollback
 
-Antes da atualização, faça backup, fixe `APP_IMAGE_TAG` na nova versão e execute
-`docker compose pull && docker compose up -d --wait`. Para rollback, restaure o
-backup quando houver migration incompatível, volte `APP_IMAGE_TAG` para a versão
-anterior imutável e repita o comando. Não use `latest` em produção.
+Antes da atualização automática, faça backup e execute
+`docker compose pull && docker compose up -d --wait`. Para uma janela controlada,
+fixe temporariamente `APP_IMAGE_TAG` na versão homologada. Em um rollback, restaure
+o backup quando houver migration incompatível, use a tag anterior imutável e
+repita o comando; depois da recuperação, decida quando voltar para `latest`.

@@ -1,10 +1,13 @@
 # Override de produção com imagens publicadas no GitHub Container Registry.
 # Uso: DEPLOY_MODE=ghcr ./scripts/install.sh
+# As imagens oficiais funcionam sem configuração adicional. Para usar um fork
+# ou outro registry, sobrescreva GHCR_REGISTRY, GHCR_NAMESPACE e AUDITOR_IMAGE_TAG
+# no arquivo .env; essas opções não bloqueiam a validação do Compose.
 # As chaves abaixo repetem exatamente os nomes prefixados de `compose.yaml`;
 # isso evita criar serviços paralelos quando o override é combinado à base.
 services:
   auditor-fiscal-api:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:-latest}
     pull_policy: always
     logging: &default_logging
       driver: json-file
@@ -17,12 +20,12 @@ services:
         reservations: {memory: 512M}
 
   auditor-fiscal-scheduler:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:-latest}
     pull_policy: always
     logging: *default_logging
 
   auditor-fiscal-worker:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:-latest}
     pull_policy: always
     logging: *default_logging
     deploy:
@@ -32,12 +35,12 @@ services:
         reservations: {memory: 512M}
 
   auditor-fiscal-web:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-web:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-web:${AUDITOR_IMAGE_TAG:-latest}
     pull_policy: always
     logging: *default_logging
 
   auditor-fiscal-engine:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-fiscal-engine:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-fiscal-engine:${AUDITOR_IMAGE_TAG:-latest}
     pull_policy: always
     logging: *default_logging
     deploy:

@@ -21,12 +21,28 @@ inicialização antes do merge.
 
 ## Release automática
 
-Toda PR destinada a `main` precisa alterar `VERSION` para uma versão SemVer ainda
-não publicada. Use:
+Não é necessário informar nem editar manualmente uma versão a cada PR. Quando
+a versão atual já possui uma tag publicada, o job **Repository contracts**
+calcula o próximo patch após a maior tag SemVer, sincroniza somente os metadados
+da aplicação e faz um commit na própria branch da PR com a identidade oficial do repositório.
+As tags de imagem dos arquivos de deploy permanecem em `latest` e não fazem parte
+do contrato SemVer; a release injeta sua tag imutável diretamente nos jobs de
+build e verificação. O validador aceita também uma tag SemVer fixada para rollback,
+mas nunca exige que `AUDITOR_IMAGE_TAG` ou `APP_IMAGE_TAG` coincidam com `VERSION`.
 
-```bash
-./scripts/release.sh 1.0.2
-```
+O novo evento `synchronize` reexecuta os gates usando o commit versionado. O
+processo é idempotente: uma versão sem tag não é alterada. Para executar o mesmo
+fluxo localmente, opcionalmente use `./scripts/release.sh --next`. Pull Requests originadas de
+forks não recebem permissão de escrita; nesses casos, o colaborador deve executar
+o comando local e enviar o commit para sua branch.
+
+Por padrão, o workflow usa o `GITHUB_TOKEN`, envia o commit e dispara
+explicitamente uma nova execução por `workflow_dispatch`, pois pushes desse token
+não geram eventos recursivos. Portanto, nenhum secret adicional é obrigatório.
+Opcionalmente, cadastre `VERSIONING_TOKEN` com um token fine-grained de @wkarts,
+limitado a este repositório e a **Contents: Read and write**; nesse caso, o push
+gera o evento `synchronize` naturalmente. Não conceda permissões administrativas,
+packages ou acesso a outros repositórios.
 
 Se a versão da PR já tiver uma tag publicada, o job **Repository contracts**
 calcula o próximo patch após a maior tag SemVer, sincroniza todos os metadados e

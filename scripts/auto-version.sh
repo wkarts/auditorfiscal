@@ -58,17 +58,6 @@ pyproject.write_text(re.sub(
 main = root / 'services/fiscal-engine/app/main.py'
 main.write_text(re.sub(r"version='[^']+'", f"version='{version}'", main.read_text(), count=1))
 
-env_example = root / '.env.example'
-text = env_example.read_text()
-text = re.sub(r'^AUDITOR_IMAGE_TAG=.*$', f'AUDITOR_IMAGE_TAG={version}', text, count=1, flags=re.M)
-text = re.sub(r'^APP_IMAGE_TAG=.*$', f'APP_IMAGE_TAG={version}', text, count=1, flags=re.M)
-env_example.write_text(text)
-
-dockge = root / 'deploy/dockge/compose.yaml'
-dockge.write_text(dockge.read_text().replace(
-    f'${{APP_IMAGE_TAG:-{current}}}', f'${{APP_IMAGE_TAG:-{version}}}',
-))
-
 changelog = root / 'CHANGELOG.md'
 text = changelog.read_text()
 heading = (

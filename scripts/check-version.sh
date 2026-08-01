@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-MODE="${1:-pr}"
+MODE="${1:-}"
+[[ -n "$MODE" ]] || MODE="--local"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+case "$MODE" in
+  --ci | --local | --release) ;;
+  *)
+    echo 'Uso: scripts/check-version.sh [--ci|--local|--release]' >&2
+    exit 2
+    ;;
+esac
 
 VERSION_VALUE="$(tr -d '[:space:]' < VERSION)"
 [[ "$VERSION_VALUE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -32,15 +41,25 @@ if f"version='{version}'" not in main:
 changelog = (root / 'CHANGELOG.md').read_text()
 if f'## [{version}]' not in changelog:
     raise SystemExit(f'CHANGELOG.md não possui seção [{version}]')
-env_example = (root / '.env.example').read_text()
+
+# Tags de deploy possuem ciclo próprio: `latest` acompanha releases e uma tag
+# SemVer pode ser fixada para homologação/rollback. Elas nunca precisam coincidir
+# com VERSION, que representa exclusivamente os metadados da aplicação.
+env = (root / '.env.example').read_text()
 for variable in ('AUDITOR_IMAGE_TAG', 'APP_IMAGE_TAG'):
-    if not re.search(rf'^{variable}={re.escape(version)}$', env_example, re.M):
-        raise SystemExit(f'.env.example não sincroniza {variable} com VERSION')
-dockge = (root / 'deploy/dockge/compose.yaml').read_text()
-if f'${{APP_IMAGE_TAG:-{version}}}' not in dockge:
-    raise SystemExit('Compose Dockge não sincroniza APP_IMAGE_TAG com VERSION')
+    match = re.search(rf'^{variable}=(\S+)$', env, re.M)
+    if not match or not re.fullmatch(r'(?:latest|\d+\.\d+\.\d+)', match.group(1)):
+        raise SystemExit(f'{variable} deve ser latest ou uma tag SemVer')
 print(f'Contrato de versão {version} aprovado.')
 PY
+
+# No CI de Pull Request, auto-version.sh é a autoridade para reservar a próxima
+# versão. A disponibilidade da tag não é revalidada aqui para evitar uma corrida
+# entre o commit automático e a execução que o originou.
+if [[ "$MODE" == "--ci" ]]; then
+  echo 'Disponibilidade da tag delegada ao versionamento automático do workflow.'
+  exit 0
+fi
 
 TAG="v$VERSION_VALUE"
 if git rev-parse "$TAG" >/dev/null 2>&1; then
