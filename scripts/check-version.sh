@@ -32,6 +32,16 @@ if f"version='{version}'" not in main:
 changelog = (root / 'CHANGELOG.md').read_text()
 if f'## [{version}]' not in changelog:
     raise SystemExit(f'CHANGELOG.md não possui seção [{version}]')
+env_example = (root / '.env.example').read_text()
+for variable in ('AUDITOR_IMAGE_TAG', 'APP_IMAGE_TAG'):
+    if not re.search(rf'^{variable}={re.escape(version)}$', env_example, re.M):
+        raise SystemExit(f'.env.example não sincroniza {variable} com VERSION')
+dockge = (root / 'deploy/dockge/compose.yaml').read_text()
+if f'${{APP_IMAGE_TAG:-{version}}}' not in dockge:
+    raise SystemExit('Compose Dockge não sincroniza APP_IMAGE_TAG com VERSION')
+production = (root / 'compose.production.yaml').read_text()
+if f'${{AUDITOR_IMAGE_TAG:-{version}}}' not in production:
+    raise SystemExit('Compose de produção não sincroniza AUDITOR_IMAGE_TAG com VERSION')
 print(f'Contrato de versão {version} aprovado.')
 PY
 
