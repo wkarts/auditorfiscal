@@ -106,7 +106,7 @@ jobs:
           # a imagem local carregada e mantém a PR independente do package remoto.
           docker image inspect ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1 >/dev/null
           docker buildx use default
-          test "$(docker buildx inspect --format '{{.Driver}}')" = docker
+          docker buildx inspect default | grep -Eq '^Driver:[[:space:]]+docker$'
 
       - name: Build all application images
         run: docker compose build --parallel api web fiscal-engine
