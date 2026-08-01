@@ -1,5 +1,7 @@
 name: "${COMPOSE_PROJECT_NAME:-auditor-fiscal}"
 
+# Contrato de nomenclatura: toda chave de serviço e toda referência DNS interna
+# deve iniciar com `auditor-fiscal-`. O CI valida este contrato via `config --services`.
 services:
   auditor-fiscal-caddy:
     image: caddy:2-alpine

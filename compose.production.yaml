@@ -1,5 +1,7 @@
 # Override de produção com imagens publicadas no GitHub Container Registry.
 # Uso: DEPLOY_MODE=ghcr ./scripts/install.sh
+# As chaves abaixo repetem exatamente os nomes prefixados de `compose.yaml`;
+# isso evita criar serviços paralelos quando o override é combinado à base.
 services:
   auditor-fiscal-api:
     image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
