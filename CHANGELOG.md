@@ -1,11 +1,19 @@
 # Changelog
 
+## [1.1.2] - 2026-08-01
+
+### Alterado
+
+- Reserva automática de versão sem exigir `VERSIONING_TOKEN`, com revalidação explícita do novo SHA.
+- Validação de isolamento atualizada para bind mounts resolvidos em diretórios distintos por stack Dockge.
+
 ## [1.1.1] - 2026-08-01
 
 ### Alterado
 
 - Reserva automática da próxima versão patch disponível em Pull Requests para evitar reutilização de tags.
 - Sincronização de `VERSION`, metadados dos componentes, tags de deploy e changelog pelo mesmo contrato idempotente.
+- Persistência em bind mounts locais por stack e `env_file` compatível com versões do Compose embarcadas no Dockge.
 
 ## [1.1.0] - 2026-08-01
 

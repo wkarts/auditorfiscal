@@ -160,6 +160,7 @@ jobs:
           sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=release-gate|' .env
           sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=${{ needs.contract.outputs.namespace }}|' .env
           sed -i 's|^AUDITOR_IMAGE_TAG=.*|AUDITOR_IMAGE_TAG=${{ needs.contract.outputs.version }}|' .env
+          cp .env deploy/dockge/.env
       - name: Validate Compose contracts
         shell: bash
         run: |

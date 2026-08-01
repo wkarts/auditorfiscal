@@ -37,12 +37,13 @@ fluxo localmente, use `./scripts/release.sh --next`. Pull Requests originadas de
 forks não recebem permissão de escrita; nesses casos, o colaborador deve executar
 o comando local e enviar o commit para sua branch.
 
-Cadastre em **Settings > Secrets and variables > Actions** o secret
-`VERSIONING_TOKEN`, contendo um token fine-grained de @wkarts limitado a este
-repositório, com acesso **Contents: Read and write**. Esse token é necessário
-porque commits feitos pelo `GITHUB_TOKEN` não iniciam uma nova execução de
-workflow; o token dedicado gera o evento `synchronize` que valida o novo SHA.
-Não conceda permissões de administração, packages ou outros repositórios.
+Por padrão, o workflow usa o `GITHUB_TOKEN`, envia o commit e dispara
+explicitamente uma nova execução por `workflow_dispatch`, pois pushes desse token
+não geram eventos recursivos. Portanto, nenhum secret adicional é obrigatório.
+Opcionalmente, cadastre `VERSIONING_TOKEN` com um token fine-grained de @wkarts,
+limitado a este repositório e a **Contents: Read and write**; nesse caso, o push
+gera o evento `synchronize` naturalmente. Não conceda permissões administrativas,
+packages ou acesso a outros repositórios.
 
 Após o merge em `main`, `.github/workflows/release.yml`:
 

@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main, develop]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,7 +18,8 @@ jobs:
     name: Repository contracts
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      actions: write
+      contents: write
     steps:
       - name: Checkout complete history
         uses: actions/checkout@v7
@@ -29,16 +31,13 @@ jobs:
         if: github.event_name == 'pull_request' && github.base_ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSIONING_TOKEN: ${{ secrets.VERSIONING_TOKEN }}
         run: |
           set -euo pipefail
           bash ./scripts/auto-version.sh
           if git diff --quiet; then
             exit 0
-          fi
-          if [[ -z "$VERSIONING_TOKEN" ]]; then
-            echo 'Defina o secret VERSIONING_TOKEN para permitir o commit automático de versão.' >&2
-            exit 1
           fi
           VERSION_VALUE="$(tr -d '[:space:]' < VERSION)"
           git config user.name 'Wallace Kleiton'
@@ -48,8 +47,14 @@ jobs:
             apps/web/package.json services/fiscal-engine/pyproject.toml \
             services/fiscal-engine/app/main.py
           git commit -m "chore(release): reserva v${VERSION_VALUE}"
-          git remote set-url origin "https://x-access-token:${VERSIONING_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          PUSH_TOKEN="${VERSIONING_TOKEN:-$GH_TOKEN}"
+          git remote set-url origin "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "HEAD:${{ github.head_ref }}"
+          if [[ -z "$VERSIONING_TOKEN" ]]; then
+            # Pushes do GITHUB_TOKEN não geram eventos recursivos. O dispatch
+            # explícito valida o novo SHA sem exigir um secret adicional.
+            gh workflow run ci.yml --ref "${{ github.head_ref }}"
+          fi
 
       - name: Validate repository privacy
         run: python3 scripts/scan-repository-data.py
@@ -181,6 +186,7 @@ jobs:
           sed -i 's|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=ci-only|' .env
           sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=ci-only|' .env
           sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=example|' .env
+          cp .env deploy/dockge/.env
 
       - name: Validate Compose files
         shell: bash
@@ -204,17 +210,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf /tmp/dockge-instance-01 /tmp/dockge-instance-02
+          mkdir -p /tmp/dockge-instance-01 /tmp/dockge-instance-02
+          cp deploy/dockge/compose.yaml /tmp/dockge-instance-01/compose.yaml
+          cp deploy/dockge/compose.yaml /tmp/dockge-instance-02/compose.yaml
+          cp .env /tmp/dockge-instance-01/.env
           sed \
             -e 's/auditor-fiscal-cliente01/auditor-fiscal-cliente02/g' \
             -e 's/cliente01/cliente02/g' \
             -e 's/APP_HTTP_PORT=8080/APP_HTTP_PORT=8082/' \
-            .env.example > /tmp/instance-02.env
-          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config > /tmp/instance-01.yaml
-          docker compose --env-file /tmp/instance-02.env -f deploy/dockge/compose.yaml config > /tmp/instance-02.yaml
+            .env > /tmp/dockge-instance-02/.env
+          docker compose --env-file /tmp/dockge-instance-01/.env -f /tmp/dockge-instance-01/compose.yaml config > /tmp/instance-01.yaml
+          docker compose --env-file /tmp/dockge-instance-02/.env -f /tmp/dockge-instance-02/compose.yaml config > /tmp/instance-02.yaml
           grep -F 'name: auditor-fiscal-cliente01' /tmp/instance-01.yaml
           grep -F 'name: auditor-fiscal-cliente02' /tmp/instance-02.yaml
-          grep -F 'name: auditor-fiscal-cliente01_postgres_data' /tmp/instance-01.yaml
-          grep -F 'name: auditor-fiscal-cliente02_postgres_data' /tmp/instance-02.yaml
+          grep -F 'source: /tmp/dockge-instance-01/postgres_data' /tmp/instance-01.yaml
+          grep -F 'source: /tmp/dockge-instance-02/postgres_data' /tmp/instance-02.yaml
+          grep -F 'source: /tmp/dockge-instance-01/api_storage' /tmp/instance-01.yaml
+          grep -F 'source: /tmp/dockge-instance-02/api_storage' /tmp/instance-02.yaml
           grep -F 'published: "8080"' /tmp/instance-01.yaml
           grep -F 'published: "8082"' /tmp/instance-02.yaml
           ! grep -F 'container_name:' /tmp/instance-01.yaml

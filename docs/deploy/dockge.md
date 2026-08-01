@@ -31,14 +31,14 @@ Compose ou no Git. `IMAGE_NAMESPACE=wkarts` e `APP_IMAGE_TAG` selecionam as
 imagens publicadas. Se o package for privado, autentique o host com um token de
 leitura fornecido por variável/secret manager (`docker login ghcr.io`).
 
-O `env_file` do Compose é marcado como opcional exclusivamente para permitir a
-validação estática do bundle antes da criação do `.env`. O deploy operacional
-continua exigindo o arquivo `/opt/stacks/<stack>/.env`; confirme sua existência e
-permissões antes de clicar em **Deploy**:
+O `env_file` usa o formato de lista de strings compatível com versões do Compose
+embarcadas pelo Dockge. O deploy exige o arquivo `/opt/stacks/<stack>/.env`;
+confirme sua existência e permissões antes de clicar em **Deploy**:
 
 ```bash
 test -s .env
 chmod 600 .env
+mkdir -p api_storage postgres_data redis_data rabbitmq_data minio_data
 ```
 
 Na interface, use **Scan Stacks Folder**, abra a pasta criada e clique em
@@ -68,10 +68,14 @@ docker compose --env-file .env -f compose.yaml config --volumes
 docker compose --env-file .env -f compose.yaml config --networks
 ```
 
-`docker compose down` preserva dados; `docker compose down --volumes` remove
-somente os volumes declarados por aquele `RESOURCE_PREFIX`. Nunca reutilize o
-prefixo de outra instalação. Para mover dados, use os procedimentos de backup e
-restore em `docs/deploy/backup-restore.md`.
+Os dados são bind mounts sob o próprio diretório da stack: `./api_storage`,
+`./postgres_data`, `./redis_data`, `./rabbitmq_data` e `./minio_data`. Assim,
+`docker compose down`, inclusive com `--volumes`, não apaga esses diretórios.
+O serviço idempotente `auditor-fiscal-storage-init` prepara a propriedade do
+storage compartilhado da API antes de sua inicialização. Nunca aponte duas
+stacks para o mesmo diretório. Para remover uma instalação, faça backup e exclua
+os diretórios manualmente; para mover dados, use os procedimentos em
+`docs/deploy/backup-restore.md`.
 
 ## Atualização e rollback
 
