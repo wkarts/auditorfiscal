@@ -1,22 +1,22 @@
 services:
-  api:
+  auditor-fiscal-api:
     image: auditor-fiscal/api:pr
     ports:
       - "127.0.0.1:18080:8080"
 
-  web:
+  auditor-fiscal-web:
     image: auditor-fiscal/web:pr
 
-  fiscal-engine:
+  auditor-fiscal-fiscal-engine:
     image: auditor-fiscal/fiscal-engine:pr
     ports:
       - "127.0.0.1:18082:8000"
 
-  caddy:
+  auditor-fiscal-caddy:
     profiles: [ci-disabled]
 
-  scheduler:
+  auditor-fiscal-scheduler:
     profiles: [ci-disabled]
 
-  worker:
+  auditor-fiscal-worker:
     profiles: [ci-disabled]

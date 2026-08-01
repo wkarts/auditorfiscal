@@ -1,7 +1,9 @@
 # Override de produção com imagens publicadas no GitHub Container Registry.
 # Uso: DEPLOY_MODE=ghcr ./scripts/install.sh
+# As chaves abaixo repetem exatamente os nomes prefixados de `compose.yaml`;
+# isso evita criar serviços paralelos quando o override é combinado à base.
 services:
-  api:
+  auditor-fiscal-api:
     image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
     logging: &default_logging
@@ -14,12 +16,12 @@ services:
         limits: {cpus: "2.0", memory: 2G}
         reservations: {memory: 512M}
 
-  scheduler:
+  auditor-fiscal-scheduler:
     image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
     logging: *default_logging
 
-  worker:
+  auditor-fiscal-worker:
     image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
     logging: *default_logging
@@ -29,12 +31,12 @@ services:
         limits: {cpus: "2.0", memory: 2G}
         reservations: {memory: 512M}
 
-  web:
+  auditor-fiscal-web:
     image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-web:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
     logging: *default_logging
 
-  fiscal-engine:
+  auditor-fiscal-fiscal-engine:
     image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-fiscal-engine:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
     pull_policy: always
     logging: *default_logging
@@ -43,21 +45,21 @@ services:
         limits: {cpus: "4.0", memory: 4G}
         reservations: {memory: 1G}
 
-  postgres:
+  auditor-fiscal-postgres:
     logging: *default_logging
     shm_size: 512mb
     deploy:
       resources:
         limits: {cpus: "2.0", memory: 3G}
 
-  redis:
+  auditor-fiscal-redis:
     logging: *default_logging
 
-  rabbitmq:
+  auditor-fiscal-rabbitmq:
     logging: *default_logging
 
-  minio:
+  auditor-fiscal-minio:
     logging: *default_logging
 
-  caddy:
+  auditor-fiscal-caddy:
     logging: *default_logging

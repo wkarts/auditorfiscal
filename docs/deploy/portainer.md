@@ -9,9 +9,9 @@
 5. Faça o deploy e, no console da stack, execute migração e seed:
 
 ```bash
-docker compose run --rm minio-init
-docker compose run --rm api php artisan migrate --force
-docker compose run --rm api php artisan db:seed --force
+docker compose run --rm auditor-fiscal-minio-init
+docker compose run --rm auditor-fiscal-api php artisan migrate --force
+docker compose run --rm auditor-fiscal-api php artisan db:seed --force
 ```
 
 Use a tag exata da release para permitir rollback previsível.

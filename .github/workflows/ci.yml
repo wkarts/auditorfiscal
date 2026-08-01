@@ -16,11 +16,40 @@ jobs:
   repository:
     name: Repository contracts
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout complete history
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+
+      - name: Reserve next available version
+        if: github.event_name == 'pull_request' && github.base_ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          VERSIONING_TOKEN: ${{ secrets.VERSIONING_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash ./scripts/auto-version.sh
+          if git diff --quiet; then
+            exit 0
+          fi
+          if [[ -z "$VERSIONING_TOKEN" ]]; then
+            echo 'Defina o secret VERSIONING_TOKEN para permitir o commit automático de versão.' >&2
+            exit 1
+          fi
+          VERSION_VALUE="$(tr -d '[:space:]' < VERSION)"
+          git config user.name 'Wallace Kleiton'
+          git config user.email 'wkarts@gmail.com'
+          git add \
+            VERSION CHANGELOG.md .env.example deploy/dockge/compose.yaml \
+            apps/web/package.json services/fiscal-engine/pyproject.toml \
+            services/fiscal-engine/app/main.py
+          git commit -m "chore(release): reserva v${VERSION_VALUE}"
+          git remote set-url origin "https://x-access-token:${VERSIONING_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${{ github.head_ref }}"
 
       - name: Validate repository privacy
         run: python3 scripts/scan-repository-data.py
@@ -152,9 +181,41 @@ jobs:
           sed -i 's|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=ci-only|' .env
           sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=ci-only|' .env
           sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=example|' .env
+          cp .env deploy/dockge/.env
 
       - name: Validate Compose files
+        shell: bash
         run: |
-          docker compose -f compose.yaml config --quiet
-          docker compose -f compose.yaml -f compose.production.yaml config --quiet
-          docker compose -f compose.yaml -f deploy/ci/compose.ci.yaml config --quiet
+          set -euo pipefail
+          validate_prefixed_services() {
+            local invalid
+            docker compose "$@" config --quiet
+            invalid="$(docker compose "$@" config --services | grep -Ev '^auditor-fiscal-[a-z0-9-]+$' || true)"
+            if [[ -n "$invalid" ]]; then
+              printf 'Serviços sem o prefixo obrigatório auditor-fiscal-:\n%s\n' "$invalid" >&2
+              return 1
+            fi
+          }
+          validate_prefixed_services -f compose.yaml
+          validate_prefixed_services -f compose.yaml -f compose.production.yaml
+          validate_prefixed_services -f compose.yaml -f deploy/ci/compose.ci.yaml
+          validate_prefixed_services --env-file .env.example -f deploy/dockge/compose.yaml
+
+      - name: Validate isolation between two Dockge stacks
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed \
+            -e 's/auditor-fiscal-cliente01/auditor-fiscal-cliente02/g' \
+            -e 's/cliente01/cliente02/g' \
+            -e 's/APP_HTTP_PORT=8080/APP_HTTP_PORT=8082/' \
+            .env.example > /tmp/instance-02.env
+          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config > /tmp/instance-01.yaml
+          docker compose --env-file /tmp/instance-02.env -f deploy/dockge/compose.yaml config > /tmp/instance-02.yaml
+          grep -F 'name: auditor-fiscal-cliente01' /tmp/instance-01.yaml
+          grep -F 'name: auditor-fiscal-cliente02' /tmp/instance-02.yaml
+          grep -F 'name: auditor-fiscal-cliente01_postgres_data' /tmp/instance-01.yaml
+          grep -F 'name: auditor-fiscal-cliente02_postgres_data' /tmp/instance-02.yaml
+          grep -F 'published: "8080"' /tmp/instance-01.yaml
+          grep -F 'published: "8082"' /tmp/instance-02.yaml
+          ! grep -F 'container_name:' /tmp/instance-01.yaml
