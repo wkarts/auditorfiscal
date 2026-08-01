@@ -2,19 +2,19 @@
 # Não defina image/build neste arquivo: compose.production.yaml deve permanecer
 # como única fonte dos nomes de imagens da release.
 services:
-  api:
+  auditor-fiscal-api:
     ports:
       - "127.0.0.1:18080:8080"
 
-  fiscal-engine:
+  auditor-fiscal-engine:
     ports:
       - "127.0.0.1:18082:8000"
 
-  caddy:
+  auditor-fiscal-caddy:
     profiles: [ci-disabled]
 
-  scheduler:
+  auditor-fiscal-scheduler:
     profiles: [ci-disabled]
 
-  worker:
+  auditor-fiscal-worker:
     profiles: [ci-disabled]

@@ -1,23 +1,32 @@
-name: auditor-fiscal
+name: "${COMPOSE_PROJECT_NAME:-auditor-fiscal}"
 
-x-api-image: &api_image ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+x-api-image: &api_image ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?Defina IMAGE_NAMESPACE}/auditorfiscal-api:${APP_IMAGE_TAG:-1.1.3}
 x-logging: &logging
   driver: json-file
   options:
-    max-size: 20m
-    max-file: "5"
+    max-size: "${LOG_MAX_SIZE:-20m}"
+    max-file: "${LOG_MAX_FILES:-5}"
+x-service-env: &service_env
+  - .env
 
 services:
-  api:
+  auditor-fiscal-storage-init:
+    image: ${STORAGE_INIT_IMAGE:-alpine:3.22}
+    restart: "no"
+    volumes: [./api_storage:/api_storage]
+    command: ["/bin/sh", "-ec", "chown -R ${API_RUNTIME_UID:-82}:${API_RUNTIME_GID:-82} /api_storage && chmod 0770 /api_storage"]
+
+  auditor-fiscal-api:
     image: *api_image
     restart: unless-stopped
-    env_file: .env
-    volumes: [api_storage:/var/www/html/storage]
+    env_file: *service_env
+    volumes: [./api_storage:/var/www/html/storage]
     depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
-      rabbitmq: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      auditor-fiscal-storage-init: {condition: service_completed_successfully}
+      auditor-fiscal-postgres: {condition: service_healthy}
+      auditor-fiscal-redis: {condition: service_healthy}
+      auditor-fiscal-rabbitmq: {condition: service_healthy}
+      auditor-fiscal-minio: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health/live"]
       interval: 15s
@@ -26,34 +35,34 @@ services:
       start_period: 45s
     logging: *logging
 
-  scheduler:
+  auditor-fiscal-scheduler:
     image: *api_image
     restart: unless-stopped
-    env_file: .env
+    env_file: *service_env
     command: ["php", "artisan", "schedule:work"]
-    volumes: [api_storage:/var/www/html/storage]
+    volumes: [./api_storage:/var/www/html/storage]
     depends_on:
-      api: {condition: service_healthy}
+      auditor-fiscal-api: {condition: service_healthy}
     logging: *logging
 
-  worker:
+  auditor-fiscal-worker:
     image: *api_image
     restart: unless-stopped
-    env_file: .env
+    env_file: *service_env
     command: ["php", "artisan", "queue:work", "rabbitmq", "--queue=high,default,reports", "--sleep=1", "--tries=3", "--timeout=3600", "--max-time=3600"]
-    volumes: [api_storage:/var/www/html/storage]
+    volumes: [./api_storage:/var/www/html/storage]
     depends_on:
-      api: {condition: service_healthy}
-      fiscal-engine: {condition: service_healthy}
+      auditor-fiscal-api: {condition: service_healthy}
+      auditor-fiscal-engine: {condition: service_healthy}
     logging: *logging
 
-  web:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-web:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+  auditor-fiscal-web:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?Defina IMAGE_NAMESPACE}/auditorfiscal-web:${APP_IMAGE_TAG:-1.1.3}
     restart: unless-stopped
     ports:
-      - "${APP_HTTP_BIND:-127.0.0.1}:${APP_HTTP_PORT:-8080}:80"
+      - "${APP_HTTP_BIND:-127.0.0.1}:${APP_HTTP_PORT:-8080}:${WEB_INTERNAL_PORT:-80}"
     depends_on:
-      api: {condition: service_healthy}
+      auditor-fiscal-api: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
       interval: 15s
@@ -61,15 +70,15 @@ services:
       retries: 10
     logging: *logging
 
-  fiscal-engine:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:?Defina GHCR_NAMESPACE}/auditorfiscal-fiscal-engine:${AUDITOR_IMAGE_TAG:?Defina AUDITOR_IMAGE_TAG}
+  auditor-fiscal-engine:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?Defina IMAGE_NAMESPACE}/auditorfiscal-fiscal-engine:${APP_IMAGE_TAG:-1.1.3}
     restart: unless-stopped
-    env_file: .env
+    env_file: *service_env
     environment:
-      DATABASE_URL: postgresql+psycopg://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}
+      DATABASE_URL: postgresql+psycopg://${DB_USERNAME:-auditor}:${DB_PASSWORD}@auditor-fiscal-postgres:${DB_PORT:-5432}/${DB_DATABASE:-auditor_fiscal}
     depends_on:
-      postgres: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      auditor-fiscal-postgres: {condition: service_healthy}
+      auditor-fiscal-minio: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=5)"]
       interval: 15s
@@ -77,40 +86,49 @@ services:
       retries: 10
     logging: *logging
 
-  postgres:
-    image: postgres:17-alpine
+  auditor-fiscal-postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_DATABASE}
-      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: ${DB_DATABASE:-auditor_fiscal}
+      POSTGRES_USER: ${DB_USERNAME:-auditor}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes: [postgres_data:/var/lib/postgresql/data]
+    volumes: [./postgres_data:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-auditor} -d ${DB_DATABASE:-auditor_fiscal}"]
       interval: 10s
       timeout: 5s
       retries: 12
     logging: *logging
 
-  redis:
-    image: redis:8-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes: [redis_data:/data]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-    logging: *logging
-
-  rabbitmq:
-    image: rabbitmq:4-management-alpine
+  auditor-fiscal-redis:
+    image: ${REDIS_IMAGE:-redis:8-alpine}
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -n "$${REDIS_PASSWORD}" ]; then
+          exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"
+        fi
+        exec redis-server --appendonly yes
+    volumes: [./redis_data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping; else redis-cli ping; fi"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  auditor-fiscal-rabbitmq:
+    image: ${RABBITMQ_IMAGE:-rabbitmq:4-management-alpine}
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-auditor}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-    volumes: [rabbitmq_data:/var/lib/rabbitmq]
+    volumes: [./rabbitmq_data:/var/lib/rabbitmq]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -119,14 +137,14 @@ services:
       start_period: 20s
     logging: *logging
 
-  minio:
-    image: minio/minio:latest
+  auditor-fiscal-minio:
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-auditor}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    volumes: [minio_data:/data]
+    volumes: [./minio_data:/data]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
       interval: 10s
@@ -134,22 +152,19 @@ services:
       retries: 12
     logging: *logging
 
-  minio-init:
-    image: minio/mc:latest
+  auditor-fiscal-minio-init:
+    image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}
     restart: "no"
-    env_file: .env
+    env_file: *service_env
     depends_on:
-      minio: {condition: service_healthy}
+      auditor-fiscal-minio: {condition: service_healthy}
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc alias set local http://auditor-fiscal-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing "local/$${AWS_BUCKET}"
         mc anonymous set none "local/$${AWS_BUCKET}"
 
-volumes:
-  postgres_data: {}
-  redis_data: {}
-  rabbitmq_data: {}
-  minio_data: {}
-  api_storage: {}
+networks:
+  default:
+    name: "${RESOURCE_PREFIX:-auditor-fiscal}_network"

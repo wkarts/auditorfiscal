@@ -19,4 +19,4 @@
 Use reprocessamento quando desejar comparar uma auditoria com nova versão do catálogo. A operação cria outro lote; nunca sobrescreve o resultado original.
 
 ## Tratamento de falhas
-Consulte `docker compose logs -f worker fiscal-engine api`. Lotes com falha preservam o erro e os arquivos originais. Após corrigir infraestrutura ou fonte, reexecute o lote.
+Consulte `docker compose logs -f auditor-fiscal-worker auditor-fiscal-engine auditor-fiscal-api`. Lotes com falha preservam o erro e os arquivos originais. Após corrigir infraestrutura ou fonte, reexecute o lote.
