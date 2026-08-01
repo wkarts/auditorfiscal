@@ -9,6 +9,7 @@
 5. Faça o deploy e, no console da stack, execute migração e seed:
 
 ```bash
+docker compose run --rm --no-deps auditor-fiscal-storage-init
 docker compose run --rm auditor-fiscal-minio-init
 docker compose run --rm auditor-fiscal-api php artisan migrate --force
 docker compose run --rm auditor-fiscal-api php artisan db:seed --force

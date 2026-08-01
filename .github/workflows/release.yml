@@ -385,6 +385,11 @@ jobs:
       - name: Start infrastructure
         run: docker compose up -d --wait --wait-timeout 180 auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio
 
+      - name: Prepare API bind mount permissions
+        run: |
+          docker compose run --rm --no-deps auditor-fiscal-storage-init
+          docker compose run --rm --no-deps --entrypoint /bin/sh auditor-fiscal-api -ec 'test -w /var/www/html/storage'
+
       - name: Initialize object storage
         run: docker compose run --rm --no-deps auditor-fiscal-minio-init
 

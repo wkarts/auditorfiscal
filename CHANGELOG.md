@@ -7,6 +7,10 @@
 - Reserva automática de versão sem exigir `VERSIONING_TOKEN`, com revalidação explícita do novo SHA.
 - Validação de isolamento atualizada para bind mounts resolvidos em diretórios distintos por stack Dockge.
 
+### Corrigido
+
+- Preparação explícita das permissões de `api_storage` antes de migrations em PRs, releases e rotinas operacionais.
+
 ## [1.1.1] - 2026-08-01
 
 ### Alterado

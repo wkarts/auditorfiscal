@@ -45,6 +45,8 @@ fi
 
 dc up -d auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio
 
+dc run --rm --no-deps auditor-fiscal-storage-init
+
 dc run --rm auditor-fiscal-minio-init
 
 dc run --rm auditor-fiscal-api php artisan migrate --force
