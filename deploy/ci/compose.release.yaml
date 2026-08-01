@@ -1,0 +1,20 @@
+# Override exclusivo para validar no CI as imagens já publicadas no GHCR.
+# Não defina image/build neste arquivo: compose.production.yaml deve permanecer
+# como única fonte dos nomes de imagens da release.
+services:
+  api:
+    ports:
+      - "127.0.0.1:18080:8080"
+
+  fiscal-engine:
+    ports:
+      - "127.0.0.1:18082:8000"
+
+  caddy:
+    profiles: [ci-disabled]
+
+  scheduler:
+    profiles: [ci-disabled]
+
+  worker:
+    profiles: [ci-disabled]
