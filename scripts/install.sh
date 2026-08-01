@@ -38,17 +38,19 @@ fi
 dc config --quiet
 
 if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
-  dc pull api web fiscal-engine
+  dc pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 else
-  dc build --pull api web fiscal-engine
+  dc build --pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 fi
 
-dc up -d postgres redis rabbitmq minio
+dc up -d auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio
 
-dc run --rm minio-init
+dc run --rm --no-deps auditor-fiscal-storage-init
 
-dc run --rm api php artisan migrate --force
-dc run --rm api php artisan db:seed --force
+dc run --rm auditor-fiscal-minio-init
+
+dc run --rm auditor-fiscal-api php artisan migrate --force
+dc run --rm auditor-fiscal-api php artisan db:seed --force
 
 if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
   dc up -d --remove-orphans --no-build
