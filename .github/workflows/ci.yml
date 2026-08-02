@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main, develop]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,11 +17,45 @@ jobs:
   repository:
     name: Repository contracts
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
     steps:
       - name: Checkout complete history
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+
+      - name: Reserve next available version
+        if: github.event_name == 'pull_request' && github.base_ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSIONING_TOKEN: ${{ secrets.VERSIONING_TOKEN }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          bash ./scripts/auto-version.sh
+          if git diff --quiet; then
+            exit 0
+          fi
+          VERSION_VALUE="$(tr -d '[:space:]' < VERSION)"
+          git config user.name 'Wallace Kleiton'
+          git config user.email 'wkarts@gmail.com'
+          git add \
+            VERSION CHANGELOG.md \
+            apps/web/package.json services/fiscal-engine/pyproject.toml \
+            services/fiscal-engine/app/main.py
+          git commit -m "chore(release): reserva v${VERSION_VALUE}"
+          PUSH_TOKEN="${VERSIONING_TOKEN:-$GH_TOKEN}"
+          git remote set-url origin "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${PR_HEAD_REF}"
+          if [[ -z "$VERSIONING_TOKEN" ]]; then
+            # Pushes do GITHUB_TOKEN não geram eventos recursivos. O dispatch
+            # explícito valida o novo SHA sem exigir um secret adicional.
+            gh workflow run ci.yml --ref "${PR_HEAD_REF}"
+          fi
 
       - name: Validate repository privacy
         run: python3 scripts/scan-repository-data.py
@@ -33,7 +68,19 @@ jobs:
 
       - name: Validate release version
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
-        run: bash ./scripts/check-version.sh
+        run: |
+          set -euo pipefail
+          bash ./scripts/check-version.sh --ci
+
+          # Regressão: tags de deploy podem ser fixadas para rollback sem que o
+          # contrato exija igualdade com VERSION.
+          cp .env.example /tmp/env.example.original
+          trap 'cp /tmp/env.example.original .env.example' EXIT
+          sed -i \
+            -e 's/^AUDITOR_IMAGE_TAG=.*/AUDITOR_IMAGE_TAG=9.9.9/' \
+            -e 's/^APP_IMAGE_TAG=.*/APP_IMAGE_TAG=9.9.9/' \
+            .env.example
+          bash ./scripts/check-version.sh --ci
 
   api:
     name: API (Laravel)
@@ -143,18 +190,104 @@ jobs:
 
       - name: Prepare non-secret validation environment
         run: |
+          VALIDATION_SECRET="$(openssl rand -hex 24)"
           cp .env.example .env
-          sed -i 's|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=ci-only|' .env
-          sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=ci-only|' .env
-          sed -i 's|^RABBITMQ_PASSWORD=.*|RABBITMQ_PASSWORD=ci-only|' .env
-          sed -i 's|^AWS_SECRET_ACCESS_KEY=.*|AWS_SECRET_ACCESS_KEY=ci-only|' .env
-          sed -i 's|^FISCAL_ENGINE_TOKEN=.*|FISCAL_ENGINE_TOKEN=ci-only|' .env
-          sed -i 's|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=ci-only|' .env
-          sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=ci-only|' .env
-          sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=example|' .env
+          sed -i "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i "s|^RABBITMQ_PASSWORD=.*|RABBITMQ_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i 's|^AWS_SECRET_ACCESS_KEY=.*|AWS_SECRET_ACCESS_KEY=|' .env
+          sed -i "s|^FISCAL_ENGINE_TOKEN=.*|FISCAL_ENGINE_TOKEN=${VALIDATION_SECRET}|" .env
+          sed -i "s|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i "s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=wkarts|' .env
+          cp .env deploy/dockge/.env
+
+      - name: Validate ready-to-use Compose image defaults
+        shell: bash
+        run: |
+          set -euo pipefail
+          if rg -n 'Defina|\$\{[^}]*:\?' --glob '*compose*.yaml' --glob '*compose*.yml'; then
+            echo 'Compose não pode exigir variáveis durante a construção da configuração.' >&2
+            exit 1
+          fi
+          docker compose -f compose.yaml -f compose.production.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-api:latest'
+          docker compose -f compose.yaml -f compose.production.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-web:latest'
+          docker compose -f compose.yaml -f compose.production.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-fiscal-engine:latest'
+          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-api:latest'
+          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-web:latest'
+          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config --images \
+            | grep -Fx 'ghcr.io/wkarts/auditorfiscal-fiscal-engine:latest'
 
       - name: Validate Compose files
+        shell: bash
         run: |
-          docker compose -f compose.yaml config --quiet
-          docker compose -f compose.yaml -f compose.production.yaml config --quiet
-          docker compose -f compose.yaml -f deploy/ci/compose.ci.yaml config --quiet
+          set -euo pipefail
+          validate_prefixed_services() {
+            local invalid
+            docker compose "$@" config --quiet
+            invalid="$(docker compose "$@" config --services | grep -Ev '^auditor-fiscal-[a-z0-9-]+$' || true)"
+            if [[ -n "$invalid" ]]; then
+              printf 'Serviços sem o prefixo obrigatório auditor-fiscal-:\n%s\n' "$invalid" >&2
+              return 1
+            fi
+          }
+          validate_prefixed_services -f compose.yaml
+          validate_prefixed_services -f compose.yaml -f compose.production.yaml
+          validate_prefixed_services -f compose.yaml -f deploy/ci/compose.ci.yaml
+          validate_prefixed_services --env-file .env.example -f deploy/dockge/compose.yaml
+
+          root_services="$(docker compose -f compose.yaml --profile monitoring config --services | sort)"
+          dockge_services="$(docker compose --env-file .env.example -f deploy/dockge/compose.yaml --profile monitoring config --services | sort)"
+          if [[ "$root_services" != "$dockge_services" ]]; then
+            echo 'Os contratos raiz e Dockge devem oferecer os mesmos serviços.' >&2
+            diff -u <(printf '%s\n' "$root_services") <(printf '%s\n' "$dockge_services") || true
+            exit 1
+          fi
+
+          validate_public_ports() {
+            docker compose "$@" config --format json | python3 -c '
+          import json, sys
+          services = json.load(sys.stdin)["services"]
+          exposed = {name: service.get("ports", []) for name, service in services.items() if service.get("ports")}
+          assert set(exposed) == {"auditor-fiscal-web"}, f"portas internas publicadas: {sorted(exposed)}"
+          port = exposed["auditor-fiscal-web"][0]
+          assert port["host_ip"] == "127.0.0.1", port
+          assert int(port["published"]) == 8080, port
+          assert int(port["target"]) == 80, port
+          '
+          }
+          validate_public_ports -f compose.yaml
+          validate_public_ports -f compose.yaml -f compose.production.yaml
+          validate_public_ports --env-file .env.example -f deploy/dockge/compose.yaml
+
+      - name: Validate isolation between two Dockge stacks
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/dockge-instance-01 /tmp/dockge-instance-02
+          mkdir -p /tmp/dockge-instance-01 /tmp/dockge-instance-02
+          cp deploy/dockge/compose.yaml /tmp/dockge-instance-01/compose.yaml
+          cp deploy/dockge/compose.yaml /tmp/dockge-instance-02/compose.yaml
+          cp .env /tmp/dockge-instance-01/.env
+          sed \
+            -e 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=auditor-fiscal-wwsoftwares-homolog/' \
+            -e 's/^INSTANCE_NAME=.*/INSTANCE_NAME=wwsoftwares-homolog/' \
+            -e 's/^RESOURCE_PREFIX=.*/RESOURCE_PREFIX=auditor-fiscal-wwsoftwares-homolog/' \
+            -e 's/WEB_PUBLISHED_PORT=8080/WEB_PUBLISHED_PORT=8082/' \
+            .env > /tmp/dockge-instance-02/.env
+          docker compose --env-file /tmp/dockge-instance-01/.env -f /tmp/dockge-instance-01/compose.yaml config > /tmp/instance-01.yaml
+          docker compose --env-file /tmp/dockge-instance-02/.env -f /tmp/dockge-instance-02/compose.yaml config > /tmp/instance-02.yaml
+          grep -F 'name: auditor-fiscal-wwsoftwares' /tmp/instance-01.yaml
+          grep -F 'name: auditor-fiscal-wwsoftwares-homolog' /tmp/instance-02.yaml
+          grep -F 'source: /tmp/dockge-instance-01/postgres_data' /tmp/instance-01.yaml
+          grep -F 'source: /tmp/dockge-instance-02/postgres_data' /tmp/instance-02.yaml
+          grep -F 'source: /tmp/dockge-instance-01/api_storage' /tmp/instance-01.yaml
+          grep -F 'source: /tmp/dockge-instance-02/api_storage' /tmp/instance-02.yaml
+          grep -F 'published: "8080"' /tmp/instance-01.yaml
+          grep -F 'published: "8082"' /tmp/instance-02.yaml
+          ! grep -F 'container_name:' /tmp/instance-01.yaml

@@ -9,10 +9,13 @@ class ObjectStorage:
     def download(self,key:str,target:Path)->Path:
         target.parent.mkdir(parents=True,exist_ok=True);self.client.download_file(self.bucket,key,str(target));return target
     def upload(self,source:Path,key:str,content_type:str|None=None)->dict:
-        extra={'ServerSideEncryption':'AES256'}
+        extra={}
         if content_type:extra['ContentType']=content_type
+        if settings.s3_server_side_encryption:extra['ServerSideEncryption']=settings.s3_server_side_encryption
         self.client.upload_file(str(source),self.bucket,key,ExtraArgs=extra)
         return {'storage_path':key,'size':source.stat().st_size}
     def put_bytes(self,data:bytes,key:str,content_type:str='application/xml')->dict:
-        self.client.put_object(Bucket=self.bucket,Key=key,Body=data,ContentType=content_type,ServerSideEncryption='AES256')
+        args={'Bucket':self.bucket,'Key':key,'Body':data,'ContentType':content_type}
+        if settings.s3_server_side_encryption:args['ServerSideEncryption']=settings.s3_server_side_encryption
+        self.client.put_object(**args)
         return {'storage_path':key,'size':len(data)}
