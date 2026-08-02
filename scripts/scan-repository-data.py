@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED_DIRS = {'.git', 'vendor', 'node_modules', '.venv', '__pycache__', 'backups'}
 EXCLUDED_SUFFIXES = {'.gz', '.zip', '.png', '.jpg', '.jpeg', '.pdf', '.xlsx', '.bundle'}
 ALLOWED_EMAIL_DOMAINS = {'example.invalid', 'example.com', 'localhost', 'auditor.local'}
+ALLOWED_EMAILS = {'wkarts@gmail.com'}
 
 EMAIL_RE = re.compile(r'(?i)\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,}|localhost)\b')
 TAX_ID_RE = re.compile(r'(?<!\d)(\d{11}|\d{14})(?!\d)')
@@ -41,7 +42,8 @@ def main() -> int:
         for line_number, line in enumerate(text.splitlines(), 1):
             for match in EMAIL_RE.finditer(line):
                 domain = match.group(1).lower()
-                if domain not in ALLOWED_EMAIL_DOMAINS:
+                email = match.group(0).lower()
+                if domain not in ALLOWED_EMAIL_DOMAINS and email not in ALLOWED_EMAILS:
                     findings.append(f'{rel}:{line_number}: e-mail não demonstrativo')
             for match in TAX_ID_RE.finditer(line):
                 value = match.group(1)

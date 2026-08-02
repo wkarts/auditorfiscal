@@ -4,7 +4,7 @@ set -Eeuo pipefail
 source "$(dirname "$0")/lib/compose.sh"
 
 dc ps
-for service in api fiscal-engine postgres redis rabbitmq minio web; do
+for service in auditor-fiscal-api auditor-fiscal-engine auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio auditor-fiscal-web; do
   dc ps --status running "$service" | grep -q "$service" || {
     echo "Serviço indisponível: $service" >&2
     exit 1
