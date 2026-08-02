@@ -1,4 +1,5 @@
 <?php
+use App\Console\Commands\DeclareRabbitMqQueues;
 use App\Http\Middleware\AuditRequest;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -11,6 +12,7 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withCommands([DeclareRabbitMqQueues::class])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->api(append: [AuditRequest::class]);
         $middleware->alias(['role' => \Spatie\Permission\Middleware\RoleMiddleware::class, 'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class]);

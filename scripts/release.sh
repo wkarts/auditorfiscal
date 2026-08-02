@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION_VALUE=${1:?Uso: ./scripts/release.sh 1.2.3}
+if [[ "${1:-}" == "--next" ]]; then
+  bash ./scripts/auto-version.sh
+  VERSION_VALUE="$(tr -d '[:space:]' < VERSION)"
+else
+  VERSION_VALUE=${1:?Uso: ./scripts/release.sh 1.2.3 ou ./scripts/release.sh --next}
+fi
 [[ "$VERSION_VALUE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
   echo 'Versão SemVer inválida.' >&2
   exit 1
@@ -41,8 +46,13 @@ if f'## [{version}]' not in text:
     changelog.write_text(text)
 PY
 
-bash ./scripts/check-version.sh
-git add VERSION apps/web/package.json services/fiscal-engine/pyproject.toml \
-  services/fiscal-engine/app/main.py CHANGELOG.md
+bash ./scripts/check-version.sh --local
+git add VERSION CHANGELOG.md \
+  apps/web/package.json services/fiscal-engine/pyproject.toml \
+  services/fiscal-engine/app/main.py
+if git diff --cached --quiet; then
+  echo "Versão v$VERSION_VALUE já estava preparada; nenhum commit necessário."
+  exit 0
+fi
 git commit -m "chore(release): prepara v$VERSION_VALUE"
 echo "Versão v$VERSION_VALUE preparada. Abra o Pull Request e aguarde a release automática após o merge em main."

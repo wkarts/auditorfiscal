@@ -160,6 +160,7 @@ jobs:
           sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=release-gate|' .env
           sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=${{ needs.contract.outputs.namespace }}|' .env
           sed -i 's|^AUDITOR_IMAGE_TAG=.*|AUDITOR_IMAGE_TAG=${{ needs.contract.outputs.version }}|' .env
+          cp .env deploy/dockge/.env
       - name: Validate Compose contracts
         shell: bash
         run: |
@@ -168,6 +169,7 @@ jobs:
           docker compose -f compose.yaml -f compose.production.yaml config --quiet
           docker compose -f compose.yaml -f deploy/ci/compose.ci.yaml config --quiet
           docker compose -f compose.yaml -f compose.production.yaml -f deploy/ci/compose.release.yaml config --quiet
+          docker compose --env-file .env.example -f deploy/dockge/compose.yaml config --quiet
 
           EXPECTED_PREFIX="ghcr.io/${{ needs.contract.outputs.namespace }}"
           VERSION_VALUE="${{ needs.contract.outputs.version }}"
@@ -222,6 +224,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Wait for immutable API base publication
+        if: matrix.component == 'api'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_IMAGE="ghcr.io/${{ needs.contract.outputs.namespace }}/auditorfiscal-api-base:php8.4-v1"
+          for attempt in $(seq 1 60); do
+            if docker buildx imagetools inspect "$BASE_IMAGE" >/dev/null 2>&1; then
+              exit 0
+            fi
+            echo "Aguardando publicação de $BASE_IMAGE ($attempt/60)"
+            sleep 10
+          done
+          echo "Imagem-base não publicada: $BASE_IMAGE" >&2
+          exit 1
+
       - name: Extract OCI metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -254,6 +272,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=release-${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}
+          build-args: |
+            BASE_IMAGE=ghcr.io/${{ needs.contract.outputs.namespace }}/auditorfiscal-api-base:php8.4-v1
           provenance: mode=max
           sbom: true
 
@@ -288,59 +308,62 @@ jobs:
       - name: Prepare release verification environment
         shell: bash
         run: |
+          TEST_PASSWORD="$(openssl rand -hex 24)"
+          TEST_APP_KEY="base64:$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::${TEST_PASSWORD}"
+          echo "TEST_PASSWORD=${TEST_PASSWORD}" >> "$GITHUB_ENV"
           cat > .env <<ENV
-          APP_NAME="Auditor Fiscal Release Verification"
+          APP_NAME="Auditor Fiscal IBS/CBS — WWSoftware's"
           APP_ENV=testing
-          APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          APP_KEY=${TEST_APP_KEY}
           APP_DEBUG=false
           APP_URL=http://127.0.0.1:18081
           APP_TIMEZONE=UTC
           FRONTEND_URL=http://127.0.0.1:18081
-          ADMIN_EMAIL=admin@example.invalid
-          ADMIN_PASSWORD=release-ci-password
+          ADMIN_EMAIL=wkarts@gmail.com
+          ADMIN_PASSWORD=${TEST_PASSWORD}
           DEPLOY_MODE=ghcr
           GHCR_REGISTRY=${REGISTRY}
           GHCR_NAMESPACE=${{ needs.contract.outputs.namespace }}
           AUDITOR_IMAGE_TAG=${{ needs.contract.outputs.version }}
-          COMPOSE_PROFILES=
-          APP_HTTP_BIND=127.0.0.1
-          APP_HTTP_PORT=18081
-          AUDITOR_DOMAIN=auditor.example.invalid
-          CADDY_EMAIL=admin@example.invalid
+          WEB_BIND_HOST=127.0.0.1
+          WEB_PUBLISHED_PORT=18081
+          AUDITOR_DOMAIN=auditor.wwsoftwares.com.br
           DB_CONNECTION=pgsql
-          DB_HOST=postgres
+          DB_HOST=auditor-fiscal-postgres
           DB_PORT=5432
           DB_DATABASE=auditor_fiscal
           DB_USERNAME=auditor
-          DB_PASSWORD=release-ci-password
-          REDIS_HOST=redis
+          DB_PASSWORD=${TEST_PASSWORD}
+          REDIS_HOST=auditor-fiscal-redis
           REDIS_PORT=6379
-          REDIS_PASSWORD=
+          REDIS_PASSWORD=${TEST_PASSWORD}
           CACHE_STORE=redis
           SESSION_DRIVER=redis
           QUEUE_CONNECTION=rabbitmq
-          RABBITMQ_HOST=rabbitmq
+          RABBITMQ_HOST=auditor-fiscal-rabbitmq
           RABBITMQ_PORT=5672
           RABBITMQ_USER=auditor
-          RABBITMQ_PASSWORD=release-ci-password
+          RABBITMQ_PASSWORD=${TEST_PASSWORD}
           RABBITMQ_VHOST=/
           FILESYSTEM_DISK=s3
           AWS_ACCESS_KEY_ID=auditor
-          AWS_SECRET_ACCESS_KEY=release-ci-password
+          AWS_SECRET_ACCESS_KEY=${TEST_PASSWORD}
           AWS_DEFAULT_REGION=us-east-1
           AWS_BUCKET=auditor-fiscal-release-ci
-          AWS_ENDPOINT=http://minio:9000
+          AWS_ENDPOINT=http://auditor-fiscal-minio:9000
           AWS_USE_PATH_STYLE_ENDPOINT=true
-          FISCAL_ENGINE_URL=http://fiscal-engine:8000
-          FISCAL_ENGINE_TOKEN=release-ci-token
+          FISCAL_ENGINE_URL=http://auditor-fiscal-engine:8000
+          FISCAL_ENGINE_TOKEN=${TEST_PASSWORD}
           MAX_UPLOAD_MB=50
           ZIP_MAX_FILES=1000
           ZIP_MAX_UNCOMPRESSED_MB=256
           MINIO_ROOT_USER=auditor
-          MINIO_ROOT_PASSWORD=release-ci-password
+          MINIO_ROOT_PASSWORD=${TEST_PASSWORD}
           GRAFANA_ADMIN_USER=admin
-          GRAFANA_ADMIN_PASSWORD=release-ci-password
+          GRAFANA_ADMIN_PASSWORD=${TEST_PASSWORD}
           ENV
+          chmod 600 .env
 
       - name: Validate resolved published image names
         shell: bash
@@ -360,19 +383,24 @@ jobs:
           fi
 
       - name: Pull published images
-        run: docker compose pull --policy always api web fiscal-engine
+        run: docker compose pull --policy always auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 
       - name: Start infrastructure
-        run: docker compose up -d --wait --wait-timeout 180 postgres redis rabbitmq minio
+        run: docker compose up -d --wait --wait-timeout 180 auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio
+
+      - name: Prepare API bind mount permissions
+        run: |
+          docker compose run --rm --no-deps auditor-fiscal-storage-init
+          docker compose run --rm --no-deps --entrypoint /bin/sh auditor-fiscal-api -ec 'test -w /var/www/html/storage'
 
       - name: Initialize object storage
-        run: docker compose run --rm --no-deps minio-init
+        run: docker compose run --rm --no-deps auditor-fiscal-minio-init
 
       - name: Apply migrations and seeds from published API image
-        run: docker compose run --rm --no-deps api php artisan migrate:fresh --seed --force
+        run: docker compose run --rm --no-deps auditor-fiscal-api php artisan migrate:fresh --seed --force
 
       - name: Start published application images
-        run: docker compose up -d --no-build api web fiscal-engine
+        run: docker compose up -d --no-build auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 
       - name: Verify release health and authentication
         shell: bash
@@ -395,7 +423,7 @@ jobs:
           wait_url Fiscal-engine http://127.0.0.1:18082/health/live
           TOKEN="$(curl --fail --silent --show-error \
             -H 'Content-Type: application/json' \
-            -d '{"email":"admin@example.invalid","password":"release-ci-password","device_name":"release"}' \
+            -d '{"email":"wkarts@gmail.com","password":"${TEST_PASSWORD}","device_name":"release"}' \
             http://127.0.0.1:18080/api/v1/auth/login \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
           test -n "$TOKEN"
@@ -410,7 +438,7 @@ jobs:
 
       - name: Stop release verification stack
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: docker compose down --remove-orphans
 
   release:
     name: Create GitHub Release
