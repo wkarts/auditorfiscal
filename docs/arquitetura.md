@@ -1,16 +1,18 @@
 # Arquitetura
 
 ## Visão
-A solução adota monorepo com três aplicações: API Laravel, SPA Vue e motor fiscal Python. O tráfego externo chega ao Caddy; operações pesadas seguem por RabbitMQ; PostgreSQL mantém dados e snapshots; MinIO preserva originais, XMLs normalizados e relatórios.
+A solução adota monorepo com três aplicações: API Laravel, SPA Vue e motor fiscal Python. O CloudPanel termina TLS e encaminha o tráfego ao Nginx interno do frontend; operações pesadas seguem por RabbitMQ; PostgreSQL mantém dados e snapshots; MinIO preserva originais, XMLs normalizados e relatórios.
 
 ```text
-Internet → Caddy/TLS → Vue + Laravel API
-                         │
-                         ├─ PostgreSQL (dados e catálogos)
-                         ├─ Redis (cache, sessões, locks)
-                         ├─ RabbitMQ (jobs)
-                         ├─ MinIO/S3 (originais e artefatos)
-                         └─ FastAPI/Python (motor fiscal)
+Internet → Nginx/CloudPanel (TLS) → porta Web em 127.0.0.1
+                                      ↓
+                                 frontend/Nginx
+                                      ├─ /api → Laravel API
+                                      ├─ PostgreSQL (dados e catálogos)
+                                      ├─ Redis (cache, sessões, locks)
+                                      ├─ RabbitMQ (jobs)
+                                      ├─ MinIO/S3 (originais e artefatos)
+                                      └─ FastAPI/Python (motor fiscal)
 ```
 
 ## Decisões
@@ -21,4 +23,4 @@ Internet → Caddy/TLS → Vue + Laravel API
 - O motor é idempotente para o mesmo arquivo, catálogo e versão de regra.
 
 ## Escalabilidade
-Workers Laravel podem ser escalados com `docker compose up -d --scale worker=4`. O motor fiscal é stateless e também pode receber múltiplas réplicas. PostgreSQL deve usar storage SSD e backups externos; MinIO pode ser substituído por S3 compatível.
+Workers Laravel podem ser escalados com `docker compose up -d --scale auditor-fiscal-worker=4`. O motor fiscal é stateless e também pode receber múltiplas réplicas. PostgreSQL deve usar storage SSD e backups externos; MinIO pode ser substituído por S3 compatível.

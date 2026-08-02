@@ -27,59 +27,62 @@ jobs:
       - name: Prepare isolated CI environment
         shell: bash
         run: |
-          cat > .env <<'ENV'
-          APP_NAME="Auditor Fiscal CI"
+          TEST_PASSWORD="$(openssl rand -hex 24)"
+          TEST_APP_KEY="base64:$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::${TEST_PASSWORD}"
+          echo "TEST_PASSWORD=${TEST_PASSWORD}" >> "$GITHUB_ENV"
+          cat > .env <<ENV
+          APP_NAME="Auditor Fiscal IBS/CBS — WWSoftware's"
           APP_ENV=testing
-          APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          APP_KEY=${TEST_APP_KEY}
           APP_DEBUG=false
           APP_URL=http://127.0.0.1:18081
           APP_TIMEZONE=UTC
           FRONTEND_URL=http://127.0.0.1:18081
-          ADMIN_EMAIL=admin@example.invalid
-          ADMIN_PASSWORD=ci-password
+          ADMIN_EMAIL=wkarts@gmail.com
+          ADMIN_PASSWORD=${TEST_PASSWORD}
           DEPLOY_MODE=source
           GHCR_REGISTRY=ghcr.io
-          GHCR_NAMESPACE=example
+          GHCR_NAMESPACE=wkarts
           AUDITOR_IMAGE_TAG=pr
-          COMPOSE_PROFILES=
-          APP_HTTP_BIND=127.0.0.1
-          APP_HTTP_PORT=18081
-          AUDITOR_DOMAIN=auditor.example.invalid
-          CADDY_EMAIL=admin@example.invalid
+          WEB_BIND_HOST=127.0.0.1
+          WEB_PUBLISHED_PORT=18081
+          AUDITOR_DOMAIN=auditor.wwsoftwares.com.br
           DB_CONNECTION=pgsql
-          DB_HOST=postgres
+          DB_HOST=auditor-fiscal-postgres
           DB_PORT=5432
           DB_DATABASE=auditor_fiscal
           DB_USERNAME=auditor
-          DB_PASSWORD=ci-password
-          REDIS_HOST=redis
+          DB_PASSWORD=${TEST_PASSWORD}
+          REDIS_HOST=auditor-fiscal-redis
           REDIS_PORT=6379
-          REDIS_PASSWORD=
+          REDIS_PASSWORD=${TEST_PASSWORD}
           CACHE_STORE=redis
           SESSION_DRIVER=redis
           QUEUE_CONNECTION=rabbitmq
-          RABBITMQ_HOST=rabbitmq
+          RABBITMQ_HOST=auditor-fiscal-rabbitmq
           RABBITMQ_PORT=5672
           RABBITMQ_USER=auditor
-          RABBITMQ_PASSWORD=ci-password
+          RABBITMQ_PASSWORD=${TEST_PASSWORD}
           RABBITMQ_VHOST=/
           FILESYSTEM_DISK=s3
           AWS_ACCESS_KEY_ID=auditor
-          AWS_SECRET_ACCESS_KEY=ci-password
+          AWS_SECRET_ACCESS_KEY=${TEST_PASSWORD}
           AWS_DEFAULT_REGION=us-east-1
           AWS_BUCKET=auditor-fiscal-ci
-          AWS_ENDPOINT=http://minio:9000
+          AWS_ENDPOINT=http://auditor-fiscal-minio:9000
           AWS_USE_PATH_STYLE_ENDPOINT=true
-          FISCAL_ENGINE_URL=http://fiscal-engine:8000
-          FISCAL_ENGINE_TOKEN=ci-token
+          FISCAL_ENGINE_URL=http://auditor-fiscal-engine:8000
+          FISCAL_ENGINE_TOKEN=${TEST_PASSWORD}
           MAX_UPLOAD_MB=50
           ZIP_MAX_FILES=1000
           ZIP_MAX_UNCOMPRESSED_MB=256
           MINIO_ROOT_USER=auditor
-          MINIO_ROOT_PASSWORD=ci-password
+          MINIO_ROOT_PASSWORD=${TEST_PASSWORD}
           GRAFANA_ADMIN_USER=admin
-          GRAFANA_ADMIN_PASSWORD=ci-password
+          GRAFANA_ADMIN_PASSWORD=${TEST_PASSWORD}
           ENV
+          chmod 600 .env
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -87,20 +90,52 @@ jobs:
       - name: Validate resolved Compose configuration
         run: docker compose config --quiet
 
+      - name: Build reusable API base with GHA cache
+        run: |
+          docker buildx build \
+            --file docker/base/api.Dockerfile \
+            --tag ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1 \
+            --cache-from type=gha,scope=pr-api-base \
+            --cache-to type=gha,mode=max,scope=pr-api-base \
+            --load .
+
+      - name: Select Docker image-store builder for dependent builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          # setup-buildx seleciona um builder docker-container. Embora --load
+          # exporte a base para o image store do daemon, esse builder isolado
+          # tentaria resolver o FROM novamente no GHCR. O driver docker reutiliza
+          # a imagem local carregada e mantém a PR independente do package remoto.
+          docker image inspect ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1 >/dev/null
+          docker buildx use default
+          docker buildx inspect default | grep -Eq '^Driver:[[:space:]]+docker$'
+
       - name: Build all application images
-        run: docker compose build --pull --parallel api web fiscal-engine
+        run: docker compose build --parallel auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 
       - name: Start infrastructure
-        run: docker compose up -d --wait --wait-timeout 180 postgres redis rabbitmq minio
+        run: docker compose up -d --wait --wait-timeout 180 auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio
+
+      - name: Prepare API bind mount permissions
+        run: |
+          docker compose run --rm --no-deps auditor-fiscal-storage-init
+          docker compose run --rm --no-deps --entrypoint /bin/sh auditor-fiscal-api -ec 'test -w /var/www/html/storage'
+          docker compose run --rm --no-deps -e APP_KEY= --entrypoint /bin/sh auditor-fiscal-api -ec '/usr/local/bin/entrypoint /bin/true; test -s /var/www/html/storage/.app_key'
 
       - name: Initialize object storage
-        run: docker compose run --rm --no-deps minio-init
+        run: docker compose run --rm --no-deps auditor-fiscal-minio-init
 
-      - name: Apply migrations and seeds
-        run: docker compose run --rm api php artisan migrate:fresh --seed --force
+      - name: Initialize database, administrator and RabbitMQ queues
+        run: |
+          docker compose run --rm --no-deps auditor-fiscal-app-init
+          for queue in high default reports; do
+            docker compose exec -T auditor-fiscal-rabbitmq rabbitmqctl list_queues --quiet name \
+              | grep -Fx "$queue"
+          done
 
       - name: Start application services
-        run: docker compose up -d api web fiscal-engine
+        run: docker compose up -d auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine auditor-fiscal-scheduler auditor-fiscal-worker
 
       - name: Wait for application health endpoints
         shell: bash
@@ -123,15 +158,85 @@ jobs:
           wait_url Web http://127.0.0.1:18081/health
           wait_url Fiscal-engine http://127.0.0.1:18082/health/live
 
+      - name: Validate stable and idempotent deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          permanent_services=(
+            auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
+            auditor-fiscal-scheduler auditor-fiscal-worker
+            auditor-fiscal-postgres auditor-fiscal-redis
+            auditor-fiscal-rabbitmq auditor-fiscal-minio
+          )
+          docker compose up -d "${permanent_services[@]}"
+
+          # O segundo `up` pode recriar scheduler/worker enquanto os serviços
+          # one-shot são reavaliados. Aguarda três leituras consecutivas estáveis
+          # para não confundir essa transição válida com um restart loop.
+          stable_checks=0
+          for attempt in $(seq 1 30); do
+            mapfile -t running_services < <(docker compose ps --status running --services)
+            mapfile -t restarting_services < <(docker compose ps --status restarting --services)
+            missing_services=()
+            for service in "${permanent_services[@]}"; do
+              if ! printf '%s\n' "${running_services[@]}" | grep -Fxq "$service"; then
+                missing_services+=("$service")
+              fi
+            done
+
+            if (( ${#missing_services[@]} == 0 && ${#restarting_services[@]} == 0 )); then
+              stable_checks=$((stable_checks + 1))
+              if (( stable_checks >= 3 )); then
+                break
+              fi
+            else
+              stable_checks=0
+            fi
+
+            if (( attempt == 30 )); then
+              printf 'Serviços ausentes após estabilização: %s\n' "${missing_services[*]:-nenhum}" >&2
+              printf 'Serviços reiniciando: %s\n' "${restarting_services[*]:-nenhum}" >&2
+              docker compose ps >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          for service in "${permanent_services[@]}"; do
+            container_id="$(docker compose ps -q "$service")"
+            test -n "$container_id"
+            restart_count="$(docker inspect --format '{{.RestartCount}}' "$container_id")"
+            if (( restart_count != 0 )); then
+              echo "$service reiniciou $restart_count vez(es) durante o deploy." >&2
+              docker compose logs --no-color --tail=100 "$service" >&2
+              exit 1
+            fi
+          done
+
+          docker compose logs --no-color --tail=200 > /tmp/auditor-fiscal-compose.log
+          if grep -E 'not a directory|restart loop|no queue .*(high|default|reports)' /tmp/auditor-fiscal-compose.log; then
+            echo 'Os logs contêm erro operacional bloqueante.' >&2
+            exit 1
+          fi
+          curl --fail --silent --show-error http://127.0.0.1:18081/health >/dev/null \
+            || { echo 'Frontend indisponível após estabilização.' >&2; exit 1; }
+          curl --fail --silent --show-error http://127.0.0.1:18081/api/v1/health/live >/dev/null \
+            || { echo 'API indisponível pelo proxy interno após estabilização.' >&2; exit 1; }
+
       - name: Run authenticated API smoke test
         shell: bash
         run: |
           set -euo pipefail
-          TOKEN="$(curl --fail --silent --show-error \
+          LOGIN_PAYLOAD="$(python3 -c 'import json,os; print(json.dumps({"email":"wkarts@gmail.com","password":os.environ["TEST_PASSWORD"],"device_name":"ci"}))')"
+          if ! LOGIN_RESPONSE="$(curl --fail-with-body --silent --show-error \
             -H 'Content-Type: application/json' \
-            -d '{"email":"admin@example.invalid","password":"ci-password","device_name":"ci"}' \
-            http://127.0.0.1:18080/api/v1/auth/login \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+            --data-binary "$LOGIN_PAYLOAD" \
+            http://127.0.0.1:18080/api/v1/auth/login)"; then
+            echo 'Falha no login do smoke test:' >&2
+            printf '%s\n' "$LOGIN_RESPONSE" >&2
+            exit 1
+          fi
+          TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<< "$LOGIN_RESPONSE")"
           test -n "$TOKEN"
           curl --fail --silent --show-error \
             -H "Authorization: Bearer $TOKEN" \
@@ -199,4 +304,4 @@ jobs:
 
       - name: Stop integration stack
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: docker compose down --remove-orphans

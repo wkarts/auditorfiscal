@@ -55,10 +55,13 @@ class PermissionSeeder extends Seeder
             throw new RuntimeException('ADMIN_EMAIL e ADMIN_PASSWORD são obrigatórios para executar o seeder.');
         }
 
-        $user = User::firstOrCreate(
-            ['email' => $email],
-            ['name' => 'Administrador', 'password' => Hash::make($password), 'active' => true],
-        );
+        $user = User::firstOrNew(['email' => $email]);
+        $user->name = 'Administrador';
+        $user->active = true;
+        if (! $user->exists || ! Hash::check($password, (string) $user->password)) {
+            $user->password = Hash::make($password);
+        }
+        $user->save();
         $user->syncRoles([$admin]);
 
         $company = Company::firstOrCreate(
