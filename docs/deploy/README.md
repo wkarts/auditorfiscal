@@ -2,12 +2,12 @@
 
 | Cenário | Arquivos principais | Proxy/HTTPS |
 |---|---|---|
-| Docker Compose standalone | `compose.yaml` | Caddy interno (`COMPOSE_PROFILES=edge-caddy`) |
-| Docker Compose + GHCR | `compose.yaml` + `compose.production.yaml` | Caddy ou proxy externo |
-| Dockge | `deploy/dockge/compose.yaml` | Proxy externo ou Caddy separado |
+| Docker Compose standalone | `compose.yaml` | CloudPanel/Nginx no host |
+| Docker Compose + GHCR | `compose.yaml` + `compose.production.yaml` | CloudPanel/Nginx no host |
+| Dockge | `deploy/dockge/compose.yaml` | CloudPanel/Nginx no host |
 | CloudPanel | stack Docker com porta local | Reverse Proxy do CloudPanel |
 | Portainer | `deploy/dockge/compose.yaml` como Stack | Proxy externo |
-| Nginx no host | stack sem Caddy | `deploy/nginx/auditor-fiscal.conf.example` |
+| Nginx no host | stack com porta Web local | `deploy/nginx/auditor-fiscal.conf.example` |
 | Traefik | stack + override de labels | Traefik externo |
 
 Guias:

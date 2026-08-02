@@ -15,13 +15,11 @@ if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
   if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     export AUDITOR_IMAGE_TAG="${TAG#v}"
   fi
-  dc pull api web fiscal-engine
-  dc run --rm --no-deps api php artisan migrate --force
-  dc up -d --remove-orphans --no-build
+  dc pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
+  dc up -d --wait --wait-timeout 300 --remove-orphans --no-build
 else
-  dc build --pull api web fiscal-engine
-  dc run --rm api php artisan migrate --force
-  dc up -d --remove-orphans
+  dc build --pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
+  dc up -d --wait --wait-timeout 300 --remove-orphans
 fi
 
 ./scripts/healthcheck.sh

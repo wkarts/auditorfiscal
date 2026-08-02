@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# Evita reservar uma versão a partir de um clone com tags desatualizadas. No CI,
+# falhar ao consultar o remoto é bloqueante para nunca reutilizar uma versão já
+# publicada; localmente, o modo offline continua disponível com aviso explícito.
+if git remote get-url origin >/dev/null 2>&1; then
+  tags_updated=0
+  for attempt in 1 2 3; do
+    if git fetch --force origin 'refs/tags/*:refs/tags/*'; then
+      tags_updated=1
+      break
+    fi
+    sleep "$((attempt * 2))"
+  done
+  if (( tags_updated == 0 )); then
+    if [[ "${CI:-false}" == "true" ]]; then
+      echo 'Não foi possível atualizar as tags remotas; reserva de versão cancelada.' >&2
+      exit 1
+    fi
+    echo 'Aviso: tags remotas indisponíveis; usando somente as tags locais.' >&2
+  fi
+fi
+
+CURRENT="$(tr -d '[:space:]' < VERSION)"
+[[ "$CURRENT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "VERSION inválida: $CURRENT" >&2
+  exit 1
+}
+
+# Uma versão ainda não publicada é preservada. Quando a tag já existe, escolhe
+# atomicamente o próximo patch após a maior tag SemVer conhecida no checkout.
+if ! git rev-parse "v$CURRENT" >/dev/null 2>&1; then
+  echo "Versão $CURRENT ainda disponível; nenhum incremento necessário."
+  exit 0
+fi
+
+NEXT="$(python3 - "$CURRENT" <<'PY'
+import re
+import subprocess
+import sys
+
+current = tuple(map(int, sys.argv[1].split('.')))
+versions = [current]
+for tag in subprocess.check_output(['git', 'tag', '--list', 'v*'], text=True).splitlines():
+    match = re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)', tag)
+    if match:
+        versions.append(tuple(map(int, match.groups())))
+major, minor, patch = max(versions)
+print(f'{major}.{minor}.{patch + 1}')
+PY
+)"
+
+python3 - "$CURRENT" "$NEXT" <<'PY'
+import json
+import re
+import sys
+from datetime import date
+from pathlib import Path
+
+current, version = sys.argv[1:]
+root = Path('.')
+(root / 'VERSION').write_text(version + '\n')
+
+package = root / 'apps/web/package.json'
+data = json.loads(package.read_text())
+data['version'] = version
+package.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+
+pyproject = root / 'services/fiscal-engine/pyproject.toml'
+pyproject.write_text(re.sub(
+    r'^version\s*=\s*"[^"]+"', f'version = "{version}"',
+    pyproject.read_text(), count=1, flags=re.M,
+))
+
+main = root / 'services/fiscal-engine/app/main.py'
+main.write_text(re.sub(r"version='[^']+'", f"version='{version}'", main.read_text(), count=1))
+
+changelog = root / 'CHANGELOG.md'
+text = changelog.read_text()
+heading = (
+    f'## [{version}] - {date.today().isoformat()}\n\n'
+    '### Alterado\n\n'
+    '- Versão patch reservada automaticamente pelo workflow para evitar reutilização de tag.\n\n'
+)
+if f'## [{version}]' not in text:
+    text = text.replace('# Changelog\n\n', '# Changelog\n\n' + heading, 1)
+    changelog.write_text(text)
+PY
+
+echo "Versão publicada $CURRENT detectada; contrato atualizado automaticamente para $NEXT."
