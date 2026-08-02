@@ -1,23 +1,18 @@
-# Proxy reverso: Caddy, Nginx e Traefik
+# Proxy reverso do CloudPanel
 
-## Caddy interno
+O Nginx gerenciado pelo CloudPanel é o único proxy público. Ele termina TLS e
+encaminha as requisições para o frontend/Nginx da stack:
 
-No `.env`:
-
-```dotenv
-COMPOSE_PROFILES=edge-caddy
-AUDITOR_DOMAIN=auditor.example.com
-CADDY_EMAIL=admin@example.com
+```text
+https://auditor.wwsoftwares.com.br → http://127.0.0.1:8080
 ```
 
-Libere 80/TCP e 443/TCP e execute `./scripts/install.sh`.
+No `.env`, mantenha a publicação restrita ao loopback:
 
-## Nginx no host
+```dotenv
+WEB_BIND_HOST=127.0.0.1
+WEB_PUBLISHED_PORT=8080
+```
 
-Deixe `COMPOSE_PROFILES=` e mantenha `APP_HTTP_BIND=127.0.0.1`. Copie
-`deploy/nginx/auditor-fiscal.conf.example`, ajuste o domínio e habilite o site.
-
-## Traefik
-
-Use `deploy/traefik/compose.override.yaml`, conecte a stack à rede externa do
-Traefik e ajuste `TRAEFIK_NETWORK`, `AUDITOR_DOMAIN` e o resolver de certificados.
+O frontend encaminha `/api/` para `auditor-fiscal-api:8080` pela rede Docker.
+Banco, Redis, RabbitMQ, MinIO, engine e API não possuem portas publicadas.

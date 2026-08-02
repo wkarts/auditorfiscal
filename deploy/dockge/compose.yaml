@@ -18,23 +18,6 @@ services:
     volumes: [./api_storage:/api_storage]
     command: ["/bin/sh", "-ec", "chown -R ${API_RUNTIME_UID:-82}:${API_RUNTIME_GID:-82} /api_storage && chmod 0770 /api_storage"]
 
-  auditor-fiscal-caddy:
-    image: ${CADDY_IMAGE:-caddy:2-alpine}
-    profiles: [edge-caddy]
-    restart: unless-stopped
-    env_file: *service_env
-    ports:
-      - "${CADDY_HTTP_BIND:-0.0.0.0}:${CADDY_HTTP_PORT:-80}:80"
-      - "${CADDY_HTTPS_BIND:-0.0.0.0}:${CADDY_HTTPS_PORT:-443}:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./caddy_data:/data
-      - ./caddy_config:/config
-    depends_on:
-      auditor-fiscal-api: {condition: service_healthy}
-      auditor-fiscal-web: {condition: service_healthy}
-    logging: *logging
-
   # Inicializa banco, usuário administrativo e filas automaticamente. Todas as
   # operações são idempotentes e executadas por uma única instância da stack.
   auditor-fiscal-app-init:
@@ -97,7 +80,7 @@ services:
     image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-wkarts}/auditorfiscal-web:${APP_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
-      - "${APP_HTTP_BIND:-127.0.0.1}:${APP_HTTP_PORT:-8080}:${WEB_INTERNAL_PORT:-80}"
+      - "${WEB_BIND_HOST:-127.0.0.1}:${WEB_PUBLISHED_PORT:-8080}:80"
     depends_on:
       auditor-fiscal-api: {condition: service_healthy}
     healthcheck:

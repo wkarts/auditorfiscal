@@ -1,8 +1,0 @@
-{$AUDITOR_DOMAIN} {
-  encode zstd gzip
-  @api path /api/* /sanctum/* /health*
-  handle @api { reverse_proxy auditor-fiscal-api:8080 }
-  handle { reverse_proxy auditor-fiscal-web:80 }
-  header { -Server; X-Content-Type-Options nosniff; X-Frame-Options DENY; Referrer-Policy strict-origin-when-cross-origin }
-  log { output stdout; format json }
-}

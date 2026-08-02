@@ -11,21 +11,21 @@ instalação; nenhum recurso é externo ou compartilhado.
 Crie um diretório diferente por cliente e copie o contrato de ambiente:
 
 ```bash
-sudo mkdir -p /opt/stacks/auditor-fiscal-cliente01
-sudo cp deploy/dockge/compose.yaml /opt/stacks/auditor-fiscal-cliente01/compose.yaml
-sudo cp .env.example /opt/stacks/auditor-fiscal-cliente01/.env
-sudo cp deploy/caddy/Caddyfile /opt/stacks/auditor-fiscal-cliente01/Caddyfile
-sudo cp deploy/monitoring/prometheus.yml /opt/stacks/auditor-fiscal-cliente01/prometheus.yml
-sudo nano /opt/stacks/auditor-fiscal-cliente01/.env
+sudo mkdir -p /opt/stacks/auditor-fiscal-wwsoftwares
+sudo cp deploy/dockge/compose.yaml /opt/stacks/auditor-fiscal-wwsoftwares/compose.yaml
+sudo cp .env.example /opt/stacks/auditor-fiscal-wwsoftwares/.env
+sudo cp deploy/monitoring/prometheus.yml /opt/stacks/auditor-fiscal-wwsoftwares/prometheus.yml
+sudo nano /opt/stacks/auditor-fiscal-wwsoftwares/.env
 ```
 
-Defina, obrigatoriamente, valores únicos e coerentes:
+Configure valores únicos e coerentes:
 
 ```dotenv
-COMPOSE_PROJECT_NAME=auditor-fiscal-cliente01
-INSTANCE_NAME=cliente01
-RESOURCE_PREFIX=auditor-fiscal-cliente01
-APP_HTTP_PORT=8081
+COMPOSE_PROJECT_NAME=auditor-fiscal-wwsoftwares
+INSTANCE_NAME=wwsoftwares
+RESOURCE_PREFIX=auditor-fiscal-wwsoftwares
+WEB_BIND_HOST=127.0.0.1
+WEB_PUBLISHED_PORT=8081
 ```
 
 Preencha senhas, tokens e URLs no `.env` local, nunca no Compose ou no Git.
@@ -59,21 +59,28 @@ docker compose run --rm auditor-fiscal-app-init
 docker compose exec auditor-fiscal-rabbitmq rabbitmqctl list_queues name
 ```
 
+Após o deploy, `storage-init`, `app-init` e `minio-init` devem aparecer como
+`Exited (0)`; isso representa conclusão bem-sucedida. API, Web, engine, worker,
+scheduler, PostgreSQL, Redis, RabbitMQ e MinIO devem permanecer `running` ou
+`healthy`. O contrato não usa `abort-on-container-exit`, portanto a conclusão de
+um init não encerra serviços permanentes.
+
 O Compose da raiz usa `build` para desenvolvimento por código-fonte; o Compose
 do Dockge usa as imagens publicadas porque a pasta da stack não contém os contextos
 de build. Essa é a única diferença estrutural intencional: a CI compara as listas
 de serviços, e ambos oferecem API, inicialização, worker, scheduler, Web, engine,
-PostgreSQL, Redis, RabbitMQ, MinIO, Caddy, Prometheus e Grafana.
+PostgreSQL, Redis, RabbitMQ, MinIO, Prometheus e Grafana. O proxy público não
+faz parte da stack: o CloudPanel encaminha o domínio para a porta Web local.
 
 ## Várias instâncias no mesmo host
 
 Repita o procedimento em outra pasta, usando, por exemplo,
-`COMPOSE_PROJECT_NAME=auditor-fiscal-cliente02`, `INSTANCE_NAME=cliente02`,
-`RESOURCE_PREFIX=auditor-fiscal-cliente02`, `AWS_BUCKET=auditor-fiscal-cliente02`
-e `APP_HTTP_PORT=8082`. Os hostnames internos (`auditor-fiscal-postgres`, `auditor-fiscal-redis`,
+`COMPOSE_PROJECT_NAME=auditor-fiscal-wwsoftwares-homolog`, `INSTANCE_NAME=wwsoftwares-homolog`,
+`RESOURCE_PREFIX=auditor-fiscal-wwsoftwares-homolog`, `AWS_BUCKET=auditor-fiscal-wwsoftwares-homolog`
+e `WEB_PUBLISHED_PORT=8082`. Os hostnames internos (`auditor-fiscal-postgres`, `auditor-fiscal-redis`,
 `auditor-fiscal-rabbitmq`, `auditor-fiscal-minio` e `auditor-fiscal-engine`) permanecem estáveis, mas só resolvem dentro da rede isolada.
-Somente a porta Web é publicada. Caso o perfil Caddy do Compose principal seja
-usado, altere também `CADDY_HTTP_PORT` e `CADDY_HTTPS_PORT`.
+Somente a porta Web é publicada, vinculada ao loopback por padrão. Configure um
+Reverse Proxy diferente no CloudPanel para cada porta de instância.
 
 Verifique antes do deploy:
 
@@ -84,8 +91,8 @@ docker compose --env-file .env -f compose.yaml config --networks
 ```
 
 Os dados são bind mounts sob o próprio diretório da stack: `./api_storage`,
-`./postgres_data`, `./redis_data`, `./rabbitmq_data` e `./minio_data`. Assim,
-`docker compose down`, inclusive com `--volumes`, não apaga esses diretórios.
+`./postgres_data`, `./redis_data`, `./rabbitmq_data` e `./minio_data`. Não use
+remoção de volumes nem prune durante atualização, rollback ou validação.
 O serviço idempotente `auditor-fiscal-storage-init` prepara a propriedade do
 storage compartilhado da API antes de sua inicialização. Nunca aponte duas
 stacks para o mesmo diretório. Para remover uma instalação, faça backup e exclua
@@ -95,7 +102,9 @@ os diretórios manualmente; para mover dados, use os procedimentos em
 ## Atualização e rollback
 
 Antes da atualização automática, faça backup e execute
-`docker compose pull && docker compose up -d --wait`. Para uma janela controlada,
+`docker compose pull && docker compose up -d --wait --remove-orphans`. O último
+argumento remove o antigo container órfão do proxy, sem tocar nos bind mounts de
+dados. Para uma janela controlada,
 fixe temporariamente `APP_IMAGE_TAG` na versão homologada. Em um rollback, restaure
 o backup quando houver migration incompatível, use a tag anterior imutável e
 repita o comando; depois da recuperação, decida quando voltar para `latest`.

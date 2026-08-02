@@ -5,7 +5,7 @@
 - Linux 64 bits;
 - Docker Engine e plugin Docker Compose V2;
 - 8 GB de RAM recomendados para a stack completa;
-- domínio apontado para a VPS quando o Caddy interno for utilizado.
+- CloudPanel/Nginx configurado como proxy reverso para a porta Web local.
 
 Instale o Docker pelo repositório oficial da distribuição e valide:
 
@@ -18,20 +18,21 @@ docker run --rm hello-world
 ## Instalação por código-fonte
 
 ```bash
-git clone <REPOSITORIO> auditor-fiscal
+git clone https://github.com/wkarts/auditorfiscal.git auditor-fiscal
 cd auditor-fiscal
 cp .env.example .env
 nano .env
 ```
 
-Defina:
+Configure:
 
 ```dotenv
 DEPLOY_MODE=source
-COMPOSE_PROFILES=edge-caddy
-AUDITOR_DOMAIN=auditor.example.com
-APP_URL=https://auditor.example.com
-FRONTEND_URL=https://auditor.example.com
+WEB_BIND_HOST=127.0.0.1
+WEB_PUBLISHED_PORT=8080
+AUDITOR_DOMAIN=auditor.wwsoftwares.com.br
+APP_URL=https://auditor.wwsoftwares.com.br
+FRONTEND_URL=https://auditor.wwsoftwares.com.br
 ```
 
 Preencha todas as senhas e execute:
@@ -44,8 +45,8 @@ Preencha todas as senhas e execute:
 
 ```dotenv
 DEPLOY_MODE=ghcr
-GHCR_NAMESPACE=usuario-ou-organizacao
-AUDITOR_IMAGE_TAG=1.0.1
+GHCR_NAMESPACE=wkarts
+AUDITOR_IMAGE_TAG=latest
 ```
 
 Para pacotes privados:

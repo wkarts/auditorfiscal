@@ -68,6 +68,3 @@ services:
 
   auditor-fiscal-minio:
     logging: *default_logging
-
-  auditor-fiscal-caddy:
-    logging: *default_logging

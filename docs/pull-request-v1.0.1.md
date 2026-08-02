@@ -59,7 +59,7 @@ Após o merge em `main`:
 - Dockge;
 - CloudPanel como reverse proxy;
 - Portainer;
-- Caddy, Nginx e Traefik;
+- Nginx e Traefik;
 - backup, restauração, atualização, rollback e hardening da VPS.
 
 ## Validações locais concluídas
