@@ -8,6 +8,10 @@
 
 ### Corrigido
 
+- Removido o proxy público redundante e seu bind mount, eliminando a falha de tipo
+  arquivo/diretório que interrompia implantações gerenciadas pelo Dockge.
+- Porta do frontend padronizada em `WEB_BIND_HOST`/`WEB_PUBLISHED_PORT`, restrita
+  a `127.0.0.1` por padrão para consumo exclusivo pelo CloudPanel.
 - Reserva de versão passa a atualizar as tags do remoto com retry antes de calcular o próximo patch.
 - Inicialização idempotente de banco, administrador e filas RabbitMQ antes da API e dos workers.
 - Paridade funcional entre os serviços dos contratos Compose raiz e Dockge.
@@ -85,7 +89,7 @@
 - Verificação das imagens já publicadas antes da criação da GitHub Release.
 - Remoção de nomes, identificadores e referências de clientes do código, testes e documentação.
 - Remoção de credenciais padrão da tela de login e dos seeders.
-- Guias completos de Docker Compose, Dockge, CloudPanel, Portainer, Caddy, Nginx e Traefik.
+- Guias completos de Docker Compose, Dockge, CloudPanel, Portainer, Nginx e Traefik.
 
 ### Segurança
 

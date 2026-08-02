@@ -43,17 +43,9 @@ else
   dc build --pull auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
 fi
 
-dc up -d auditor-fiscal-postgres auditor-fiscal-redis auditor-fiscal-rabbitmq auditor-fiscal-minio
-
-dc run --rm --no-deps auditor-fiscal-storage-init
-
-dc run --rm auditor-fiscal-minio-init
-
-dc run --rm --no-deps auditor-fiscal-app-init
-
 if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
-  dc up -d --remove-orphans --no-build
+  dc up -d --wait --wait-timeout 300 --remove-orphans --no-build
 else
-  dc up -d --remove-orphans
+  dc up -d --wait --wait-timeout 300 --remove-orphans
 fi
 ./scripts/healthcheck.sh

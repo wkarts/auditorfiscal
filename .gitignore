@@ -22,7 +22,5 @@ backups/*
 /redis_data/
 /rabbitmq_data/
 /minio_data/
-/caddy_data/
-/caddy_config/
 /prometheus_data/
 /grafana_data/

@@ -27,59 +27,62 @@ jobs:
       - name: Prepare isolated CI environment
         shell: bash
         run: |
-          cat > .env <<'ENV'
-          APP_NAME="Auditor Fiscal CI"
+          TEST_PASSWORD="$(openssl rand -hex 24)"
+          TEST_APP_KEY="base64:$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::${TEST_PASSWORD}"
+          echo "TEST_PASSWORD=${TEST_PASSWORD}" >> "$GITHUB_ENV"
+          cat > .env <<ENV
+          APP_NAME="Auditor Fiscal IBS/CBS — WWSoftware's"
           APP_ENV=testing
-          APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          APP_KEY=${TEST_APP_KEY}
           APP_DEBUG=false
           APP_URL=http://127.0.0.1:18081
           APP_TIMEZONE=UTC
           FRONTEND_URL=http://127.0.0.1:18081
-          ADMIN_EMAIL=admin@example.invalid
-          ADMIN_PASSWORD=ci-password
+          ADMIN_EMAIL=wkarts@gmail.com
+          ADMIN_PASSWORD=${TEST_PASSWORD}
           DEPLOY_MODE=source
           GHCR_REGISTRY=ghcr.io
-          GHCR_NAMESPACE=example
+          GHCR_NAMESPACE=wkarts
           AUDITOR_IMAGE_TAG=pr
-          COMPOSE_PROFILES=
-          APP_HTTP_BIND=127.0.0.1
-          APP_HTTP_PORT=18081
-          AUDITOR_DOMAIN=auditor.example.invalid
-          CADDY_EMAIL=admin@example.invalid
+          WEB_BIND_HOST=127.0.0.1
+          WEB_PUBLISHED_PORT=18081
+          AUDITOR_DOMAIN=auditor.wwsoftwares.com.br
           DB_CONNECTION=pgsql
           DB_HOST=auditor-fiscal-postgres
           DB_PORT=5432
           DB_DATABASE=auditor_fiscal
           DB_USERNAME=auditor
-          DB_PASSWORD=ci-password
+          DB_PASSWORD=${TEST_PASSWORD}
           REDIS_HOST=auditor-fiscal-redis
           REDIS_PORT=6379
-          REDIS_PASSWORD=ci-password
+          REDIS_PASSWORD=${TEST_PASSWORD}
           CACHE_STORE=redis
           SESSION_DRIVER=redis
           QUEUE_CONNECTION=rabbitmq
           RABBITMQ_HOST=auditor-fiscal-rabbitmq
           RABBITMQ_PORT=5672
           RABBITMQ_USER=auditor
-          RABBITMQ_PASSWORD=ci-password
+          RABBITMQ_PASSWORD=${TEST_PASSWORD}
           RABBITMQ_VHOST=/
           FILESYSTEM_DISK=s3
           AWS_ACCESS_KEY_ID=auditor
-          AWS_SECRET_ACCESS_KEY=ci-password
+          AWS_SECRET_ACCESS_KEY=${TEST_PASSWORD}
           AWS_DEFAULT_REGION=us-east-1
           AWS_BUCKET=auditor-fiscal-ci
           AWS_ENDPOINT=http://auditor-fiscal-minio:9000
           AWS_USE_PATH_STYLE_ENDPOINT=true
           FISCAL_ENGINE_URL=http://auditor-fiscal-engine:8000
-          FISCAL_ENGINE_TOKEN=ci-token
+          FISCAL_ENGINE_TOKEN=${TEST_PASSWORD}
           MAX_UPLOAD_MB=50
           ZIP_MAX_FILES=1000
           ZIP_MAX_UNCOMPRESSED_MB=256
           MINIO_ROOT_USER=auditor
-          MINIO_ROOT_PASSWORD=ci-password
+          MINIO_ROOT_PASSWORD=${TEST_PASSWORD}
           GRAFANA_ADMIN_USER=admin
-          GRAFANA_ADMIN_PASSWORD=ci-password
+          GRAFANA_ADMIN_PASSWORD=${TEST_PASSWORD}
           ENV
+          chmod 600 .env
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -132,7 +135,7 @@ jobs:
           done
 
       - name: Start application services
-        run: docker compose up -d auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
+        run: docker compose up -d auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine auditor-fiscal-scheduler auditor-fiscal-worker
 
       - name: Wait for application health endpoints
         shell: bash
@@ -155,13 +158,33 @@ jobs:
           wait_url Web http://127.0.0.1:18081/health
           wait_url Fiscal-engine http://127.0.0.1:18082/health/live
 
+      - name: Validate stable and idempotent deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          permanent_services=(
+            auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
+            auditor-fiscal-scheduler auditor-fiscal-worker
+            auditor-fiscal-postgres auditor-fiscal-redis
+            auditor-fiscal-rabbitmq auditor-fiscal-minio
+          )
+          docker compose up -d "${permanent_services[@]}"
+          for service in "${permanent_services[@]}"; do
+            docker compose ps --status running --services "$service" | grep -Fx "$service"
+          done
+          test "$(docker compose ps --status restarting --services | wc -l)" -eq 0
+          docker compose logs --no-color --tail=200 > /tmp/auditor-fiscal-compose.log
+          ! grep -E 'not a directory|restart loop|no queue .*(high|default|reports)' /tmp/auditor-fiscal-compose.log
+          curl --fail --silent --show-error http://127.0.0.1:18081/health >/dev/null
+          curl --fail --silent --show-error http://127.0.0.1:18081/api/v1/health/live >/dev/null
+
       - name: Run authenticated API smoke test
         shell: bash
         run: |
           set -euo pipefail
           TOKEN="$(curl --fail --silent --show-error \
             -H 'Content-Type: application/json' \
-            -d '{"email":"admin@example.invalid","password":"ci-password","device_name":"ci"}' \
+            -d '{"email":"wkarts@gmail.com","password":"${TEST_PASSWORD}","device_name":"ci"}' \
             http://127.0.0.1:18080/api/v1/auth/login \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
           test -n "$TOKEN"
@@ -231,4 +254,4 @@ jobs:
 
       - name: Stop integration stack
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: docker compose down --remove-orphans

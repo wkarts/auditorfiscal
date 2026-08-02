@@ -240,13 +240,29 @@ jobs:
           validate_prefixed_services -f compose.yaml -f deploy/ci/compose.ci.yaml
           validate_prefixed_services --env-file .env.example -f deploy/dockge/compose.yaml
 
-          root_services="$(docker compose -f compose.yaml --profile edge-caddy --profile monitoring config --services | sort)"
-          dockge_services="$(docker compose --env-file .env.example -f deploy/dockge/compose.yaml --profile edge-caddy --profile monitoring config --services | sort)"
+          root_services="$(docker compose -f compose.yaml --profile monitoring config --services | sort)"
+          dockge_services="$(docker compose --env-file .env.example -f deploy/dockge/compose.yaml --profile monitoring config --services | sort)"
           if [[ "$root_services" != "$dockge_services" ]]; then
             echo 'Os contratos raiz e Dockge devem oferecer os mesmos serviços.' >&2
             diff -u <(printf '%s\n' "$root_services") <(printf '%s\n' "$dockge_services") || true
             exit 1
           fi
+
+          validate_public_ports() {
+            docker compose "$@" config --format json | python3 -c '
+          import json, sys
+          services = json.load(sys.stdin)["services"]
+          exposed = {name: service.get("ports", []) for name, service in services.items() if service.get("ports")}
+          assert set(exposed) == {"auditor-fiscal-web"}, f"portas internas publicadas: {sorted(exposed)}"
+          port = exposed["auditor-fiscal-web"][0]
+          assert port["host_ip"] == "127.0.0.1", port
+          assert int(port["published"]) == 8080, port
+          assert int(port["target"]) == 80, port
+          '
+          }
+          validate_public_ports -f compose.yaml
+          validate_public_ports -f compose.yaml -f compose.production.yaml
+          validate_public_ports --env-file .env.example -f deploy/dockge/compose.yaml
 
       - name: Validate isolation between two Dockge stacks
         shell: bash
@@ -258,14 +274,15 @@ jobs:
           cp deploy/dockge/compose.yaml /tmp/dockge-instance-02/compose.yaml
           cp .env /tmp/dockge-instance-01/.env
           sed \
-            -e 's/auditor-fiscal-cliente01/auditor-fiscal-cliente02/g' \
-            -e 's/cliente01/cliente02/g' \
-            -e 's/APP_HTTP_PORT=8080/APP_HTTP_PORT=8082/' \
+            -e 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=auditor-fiscal-wwsoftwares-homolog/' \
+            -e 's/^INSTANCE_NAME=.*/INSTANCE_NAME=wwsoftwares-homolog/' \
+            -e 's/^RESOURCE_PREFIX=.*/RESOURCE_PREFIX=auditor-fiscal-wwsoftwares-homolog/' \
+            -e 's/WEB_PUBLISHED_PORT=8080/WEB_PUBLISHED_PORT=8082/' \
             .env > /tmp/dockge-instance-02/.env
           docker compose --env-file /tmp/dockge-instance-01/.env -f /tmp/dockge-instance-01/compose.yaml config > /tmp/instance-01.yaml
           docker compose --env-file /tmp/dockge-instance-02/.env -f /tmp/dockge-instance-02/compose.yaml config > /tmp/instance-02.yaml
-          grep -F 'name: auditor-fiscal-cliente01' /tmp/instance-01.yaml
-          grep -F 'name: auditor-fiscal-cliente02' /tmp/instance-02.yaml
+          grep -F 'name: auditor-fiscal-wwsoftwares' /tmp/instance-01.yaml
+          grep -F 'name: auditor-fiscal-wwsoftwares-homolog' /tmp/instance-02.yaml
           grep -F 'source: /tmp/dockge-instance-01/postgres_data' /tmp/instance-01.yaml
           grep -F 'source: /tmp/dockge-instance-02/postgres_data' /tmp/instance-02.yaml
           grep -F 'source: /tmp/dockge-instance-01/api_storage' /tmp/instance-01.yaml

@@ -9,12 +9,3 @@ services:
   auditor-fiscal-engine:
     ports:
       - "127.0.0.1:18082:8000"
-
-  auditor-fiscal-caddy:
-    profiles: [ci-disabled]
-
-  auditor-fiscal-scheduler:
-    profiles: [ci-disabled]
-
-  auditor-fiscal-worker:
-    profiles: [ci-disabled]
