@@ -6,7 +6,7 @@
 # As chaves abaixo repetem exatamente os nomes prefixados de `compose.yaml`;
 # isso evita criar serviços paralelos quando o override é combinado à base.
 services:
-  auditor-fiscal-api:
+  auditor-fiscal-app-init:
     image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:-latest}
     pull_policy: always
     logging: &default_logging
@@ -14,6 +14,11 @@ services:
       options:
         max-size: 20m
         max-file: "5"
+
+  auditor-fiscal-api:
+    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/auditorfiscal-api:${AUDITOR_IMAGE_TAG:-latest}
+    pull_policy: always
+    logging: *default_logging
     deploy:
       resources:
         limits: {cpus: "2.0", memory: 2G}

@@ -14,6 +14,8 @@ Crie um diretório diferente por cliente e copie o contrato de ambiente:
 sudo mkdir -p /opt/stacks/auditor-fiscal-cliente01
 sudo cp deploy/dockge/compose.yaml /opt/stacks/auditor-fiscal-cliente01/compose.yaml
 sudo cp .env.example /opt/stacks/auditor-fiscal-cliente01/.env
+sudo cp deploy/caddy/Caddyfile /opt/stacks/auditor-fiscal-cliente01/Caddyfile
+sudo cp deploy/monitoring/prometheus.yml /opt/stacks/auditor-fiscal-cliente01/prometheus.yml
 sudo nano /opt/stacks/auditor-fiscal-cliente01/.env
 ```
 
@@ -46,14 +48,22 @@ mkdir -p api_storage postgres_data redis_data rabbitmq_data minio_data
 ```
 
 Na interface, use **Scan Stacks Folder**, abra a pasta criada e clique em
-**Deploy**. Inicialize os recursos de forma idempotente pelo terminal da stack:
+**Deploy**. O serviço one-shot `auditor-fiscal-app-init` executa automaticamente
+migrations, seed do administrador e declara as filas `high`, `default` e `reports`
+antes da API iniciar. O seed atualiza a senha do administrador somente quando o
+valor de `ADMIN_PASSWORD` mudou. Para conferir ou recuperar manualmente:
 
 ```bash
-docker compose run --rm --no-deps auditor-fiscal-storage-init
-docker compose run --rm auditor-fiscal-minio-init
-docker compose run --rm auditor-fiscal-api php artisan migrate --force
-docker compose run --rm auditor-fiscal-api php artisan db:seed --force
+docker compose logs auditor-fiscal-app-init
+docker compose run --rm auditor-fiscal-app-init
+docker compose exec auditor-fiscal-rabbitmq rabbitmqctl list_queues name
 ```
+
+O Compose da raiz usa `build` para desenvolvimento por código-fonte; o Compose
+do Dockge usa as imagens publicadas porque a pasta da stack não contém os contextos
+de build. Essa é a única diferença estrutural intencional: a CI compara as listas
+de serviços, e ambos oferecem API, inicialização, worker, scheduler, Web, engine,
+PostgreSQL, Redis, RabbitMQ, MinIO, Caddy, Prometheus e Grafana.
 
 ## Várias instâncias no mesmo host
 

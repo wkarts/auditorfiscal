@@ -123,8 +123,13 @@ jobs:
       - name: Initialize object storage
         run: docker compose run --rm --no-deps auditor-fiscal-minio-init
 
-      - name: Apply migrations and seeds
-        run: docker compose run --rm --no-deps auditor-fiscal-api php artisan migrate:fresh --seed --force
+      - name: Initialize database, administrator and RabbitMQ queues
+        run: |
+          docker compose run --rm --no-deps auditor-fiscal-app-init
+          for queue in high default reports; do
+            docker compose exec -T auditor-fiscal-rabbitmq rabbitmqctl list_queues --quiet name \
+              | grep -Fx "$queue"
+          done
 
       - name: Start application services
         run: docker compose up -d auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine

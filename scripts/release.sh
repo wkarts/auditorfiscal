@@ -20,7 +20,6 @@ from pathlib import Path
 
 version = sys.argv[1]
 root = Path('.')
-previous = (root / 'VERSION').read_text().strip()
 (root / 'VERSION').write_text(version + '\n')
 
 package = root / 'apps/web/package.json'
@@ -37,17 +36,6 @@ main = root / 'services/fiscal-engine/app/main.py'
 text = main.read_text()
 text = re.sub(r"version='[^']+'", f"version='{version}'", text, count=1)
 main.write_text(text)
-
-env_example = root / '.env.example'
-text = env_example.read_text()
-text = re.sub(r'^AUDITOR_IMAGE_TAG=.*$', f'AUDITOR_IMAGE_TAG={version}', text, count=1, flags=re.M)
-text = re.sub(r'^APP_IMAGE_TAG=.*$', f'APP_IMAGE_TAG={version}', text, count=1, flags=re.M)
-env_example.write_text(text)
-
-dockge = root / 'deploy/dockge/compose.yaml'
-dockge.write_text(dockge.read_text().replace(
-    f'${{APP_IMAGE_TAG:-{previous}}}', f'${{APP_IMAGE_TAG:-{version}}}',
-))
 
 changelog = root / 'CHANGELOG.md'
 text = changelog.read_text()

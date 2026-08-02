@@ -18,9 +18,28 @@ services:
     volumes: [./api_storage:/api_storage]
     command: ["/bin/sh", "-ec", "chown -R ${API_RUNTIME_UID:-82}:${API_RUNTIME_GID:-82} /api_storage && chmod 0770 /api_storage"]
 
-  auditor-fiscal-api:
-    image: *api_image
+  auditor-fiscal-caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    profiles: [edge-caddy]
     restart: unless-stopped
+    env_file: *service_env
+    ports:
+      - "${CADDY_HTTP_BIND:-0.0.0.0}:${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_BIND:-0.0.0.0}:${CADDY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy_data:/data
+      - ./caddy_config:/config
+    depends_on:
+      auditor-fiscal-api: {condition: service_healthy}
+      auditor-fiscal-web: {condition: service_healthy}
+    logging: *logging
+
+  # Inicializa banco, usuário administrativo e filas automaticamente. Todas as
+  # operações são idempotentes e executadas por uma única instância da stack.
+  auditor-fiscal-app-init:
+    image: *api_image
+    restart: "no"
     env_file: *service_env
     volumes: [./api_storage:/var/www/html/storage]
     depends_on:
@@ -28,6 +47,22 @@ services:
       auditor-fiscal-postgres: {condition: service_healthy}
       auditor-fiscal-redis: {condition: service_healthy}
       auditor-fiscal-rabbitmq: {condition: service_healthy}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        php artisan migrate --force
+        php artisan db:seed --force
+        php artisan rabbitmq:declare-queues
+    logging: *logging
+
+  auditor-fiscal-api:
+    image: *api_image
+    restart: unless-stopped
+    env_file: *service_env
+    volumes: [./api_storage:/var/www/html/storage]
+    depends_on:
+      auditor-fiscal-app-init: {condition: service_completed_successfully}
       auditor-fiscal-minio: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health/live"]
@@ -166,6 +201,23 @@ services:
         mc alias set local http://auditor-fiscal-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing "local/$${AWS_BUCKET}"
         mc anonymous set none "local/$${AWS_BUCKET}"
+
+  auditor-fiscal-prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:latest}
+    profiles: [monitoring]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus_data:/prometheus
+    logging: *logging
+
+  auditor-fiscal-grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:latest}
+    profiles: [monitoring]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes: [./grafana_data:/var/lib/grafana]
+    logging: *logging
 
 networks:
   default:

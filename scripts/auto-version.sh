@@ -4,6 +4,27 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Evita reservar uma versão a partir de um clone com tags desatualizadas. No CI,
+# falhar ao consultar o remoto é bloqueante para nunca reutilizar uma versão já
+# publicada; localmente, o modo offline continua disponível com aviso explícito.
+if git remote get-url origin >/dev/null 2>&1; then
+  tags_updated=0
+  for attempt in 1 2 3; do
+    if git fetch --force origin 'refs/tags/*:refs/tags/*'; then
+      tags_updated=1
+      break
+    fi
+    sleep "$((attempt * 2))"
+  done
+  if (( tags_updated == 0 )); then
+    if [[ "${CI:-false}" == "true" ]]; then
+      echo 'Não foi possível atualizar as tags remotas; reserva de versão cancelada.' >&2
+      exit 1
+    fi
+    echo 'Aviso: tags remotas indisponíveis; usando somente as tags locais.' >&2
+  fi
+fi
+
 CURRENT="$(tr -d '[:space:]' < VERSION)"
 [[ "$CURRENT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
   echo "VERSION inválida: $CURRENT" >&2

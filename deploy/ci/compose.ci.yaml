@@ -1,4 +1,7 @@
 services:
+  auditor-fiscal-app-init:
+    image: auditor-fiscal/api:pr
+
   auditor-fiscal-api:
     image: auditor-fiscal/api:pr
     ports:

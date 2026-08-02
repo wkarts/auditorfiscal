@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.5] - 2026-08-02
+
+### Alterado
+
+- Branch sincronizada com a release publicada `v1.1.4` antes da reserva automática da próxima versão.
+
+### Corrigido
+
+- Reserva de versão passa a atualizar as tags do remoto com retry antes de calcular o próximo patch.
+- Inicialização idempotente de banco, administrador e filas RabbitMQ antes da API e dos workers.
+- Paridade funcional entre os serviços dos contratos Compose raiz e Dockge.
+
 ## [1.1.4] - 2026-08-01
 
 ### Alterado
@@ -11,11 +23,14 @@
 ### Alterado
 
 - Contratos Compose e de ambiente sincronizados com a release corretiva.
+- Contratos raiz e Dockge passam a oferecer a mesma lista de serviços, mantendo apenas build local versus imagem publicada como diferença intencional.
 
 ### Corrigido
 
 - Geração atômica e persistente de `APP_KEY` quando ausente no primeiro deploy.
 - Autenticação do Redis habilitada somente quando `REDIS_PASSWORD` é informado, com healthcheck equivalente.
+- Inicialização idempotente de migrations, administrador e filas RabbitMQ antes da API e dos workers.
+- Atualização segura da senha administrativa pelo seed quando `ADMIN_PASSWORD` mudar, sem rehash desnecessário.
 
 ## [1.1.2] - 2026-08-01
 

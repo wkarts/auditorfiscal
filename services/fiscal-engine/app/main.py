@@ -5,7 +5,7 @@ from prometheus_client import make_asgi_app
 from .audit_service import AuditService
 from .catalog_import import normalize_catalog
 from .security import require_internal_token
-app=FastAPI(title='Auditor Fiscal Engine',version='1.1.4',docs_url='/docs')
+app=FastAPI(title='Auditor Fiscal Engine',version='1.1.5',docs_url='/docs')
 app.mount('/metrics',make_asgi_app())
 @app.get('/health/live')
 def live():return {'status':'ok','service':'fiscal-engine'}

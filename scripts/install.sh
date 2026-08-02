@@ -49,8 +49,7 @@ dc run --rm --no-deps auditor-fiscal-storage-init
 
 dc run --rm auditor-fiscal-minio-init
 
-dc run --rm auditor-fiscal-api php artisan migrate --force
-dc run --rm auditor-fiscal-api php artisan db:seed --force
+dc run --rm --no-deps auditor-fiscal-app-init
 
 if [[ "${DEPLOY_MODE:-source}" == "ghcr" ]]; then
   dc up -d --remove-orphans --no-build

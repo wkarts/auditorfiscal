@@ -240,6 +240,14 @@ jobs:
           validate_prefixed_services -f compose.yaml -f deploy/ci/compose.ci.yaml
           validate_prefixed_services --env-file .env.example -f deploy/dockge/compose.yaml
 
+          root_services="$(docker compose -f compose.yaml --profile edge-caddy --profile monitoring config --services | sort)"
+          dockge_services="$(docker compose --env-file .env.example -f deploy/dockge/compose.yaml --profile edge-caddy --profile monitoring config --services | sort)"
+          if [[ "$root_services" != "$dockge_services" ]]; then
+            echo 'Os contratos raiz e Dockge devem oferecer os mesmos serviços.' >&2
+            diff -u <(printf '%s\n' "$root_services") <(printf '%s\n' "$dockge_services") || true
+            exit 1
+          fi
+
       - name: Validate isolation between two Dockge stacks
         shell: bash
         run: |
