@@ -174,7 +174,9 @@ jobs:
           # one-shot são reavaliados. Aguarda três leituras consecutivas estáveis
           # para não confundir essa transição válida com um restart loop.
           stable_checks=0
-          for attempt in $(seq 1 30); do
+          stabilization_timeout=180
+          stabilization_deadline=$((SECONDS + stabilization_timeout))
+          while (( SECONDS < stabilization_deadline )); do
             mapfile -t running_services < <(docker compose ps --status running --services)
             mapfile -t restarting_services < <(docker compose ps --status restarting --services)
             missing_services=()
@@ -193,14 +195,16 @@ jobs:
               stable_checks=0
             fi
 
-            if (( attempt == 30 )); then
-              printf 'Serviços ausentes após estabilização: %s\n' "${missing_services[*]:-nenhum}" >&2
-              printf 'Serviços reiniciando: %s\n' "${restarting_services[*]:-nenhum}" >&2
-              docker compose ps >&2
-              exit 1
-            fi
             sleep 2
           done
+
+          if (( stable_checks < 3 )); then
+            printf 'A stack não permaneceu estável por três leituras em %ss.\n' "$stabilization_timeout" >&2
+            printf 'Serviços ausentes após estabilização: %s\n' "${missing_services[*]:-nenhum}" >&2
+            printf 'Serviços reiniciando: %s\n' "${restarting_services[*]:-nenhum}" >&2
+            docker compose ps >&2
+            exit 1
+          fi
 
           for service in "${permanent_services[@]}"; do
             container_id="$(docker compose ps -q "$service")"
