@@ -36,6 +36,10 @@ fluxo localmente, opcionalmente use `./scripts/release.sh --next`. Pull Requests
 forks não recebem permissão de escrita; nesses casos, o colaborador deve executar
 o comando local e enviar o commit para sua branch.
 
+Antes de calcular o patch, `auto-version.sh` atualiza as tags do remoto `origin`
+com retry. No CI, a reserva é cancelada se essa consulta falhar, impedindo que um
+checkout desatualizado reutilize uma versão que já foi publicada.
+
 Por padrão, o workflow usa o `GITHUB_TOKEN`, envia o commit e dispara
 explicitamente uma nova execução por `workflow_dispatch`, pois pushes desse token
 não geram eventos recursivos. Portanto, nenhum secret adicional é obrigatório.

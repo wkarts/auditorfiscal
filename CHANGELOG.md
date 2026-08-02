@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.1.5] - 2026-08-02
+
+### Alterado
+
+- Branch sincronizada com a release publicada `v1.1.4` antes da reserva automática da próxima versão.
+
+### Corrigido
+
+- Reserva de versão passa a atualizar as tags do remoto com retry antes de calcular o próximo patch.
+- Inicialização idempotente de banco, administrador e filas RabbitMQ antes da API e dos workers.
+- Paridade funcional entre os serviços dos contratos Compose raiz e Dockge.
+
+## [1.1.4] - 2026-08-01
+
+### Alterado
+
+- Versão patch reservada automaticamente pelo workflow para evitar reutilização de tag.
+
 ## [1.1.3] - 2026-08-01
 
 ### Alterado
