@@ -421,11 +421,16 @@ jobs:
           wait_url API http://127.0.0.1:18080/api/v1/health/ready
           wait_url Web http://127.0.0.1:18081/health
           wait_url Fiscal-engine http://127.0.0.1:18082/health/live
-          TOKEN="$(curl --fail --silent --show-error \
+          LOGIN_PAYLOAD="$(python3 -c 'import json,os; print(json.dumps({"email":"wkarts@gmail.com","password":os.environ["TEST_PASSWORD"],"device_name":"release"}))')"
+          if ! LOGIN_RESPONSE="$(curl --fail-with-body --silent --show-error \
             -H 'Content-Type: application/json' \
-            -d '{"email":"wkarts@gmail.com","password":"${TEST_PASSWORD}","device_name":"release"}' \
-            http://127.0.0.1:18080/api/v1/auth/login \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+            --data-binary "$LOGIN_PAYLOAD" \
+            http://127.0.0.1:18080/api/v1/auth/login)"; then
+            echo 'Falha no login de verificação da release:' >&2
+            printf '%s\n' "$LOGIN_RESPONSE" >&2
+            exit 1
+          fi
+          TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<< "$LOGIN_RESPONSE")"
           test -n "$TOKEN"
           curl --fail --silent --show-error \
             -H "Authorization: Bearer $TOKEN" \
