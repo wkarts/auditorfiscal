@@ -1,3 +1,31 @@
 <?php
-namespace App\Services; use App\Models\Company; use App\Models\User; use Illuminate\Auth\Access\AuthorizationException;
-class CompanyAccess {public static function ensure(User $user,string $companyId):Company{$q=Company::query()->whereKey($companyId);if(!$user->hasRole('Administrador'))$q->whereHas('users',fn($x)=>$x->where('users.id',$user->id))->whereHas('tenant.users',fn($x)=>$x->where('users.id',$user->id));return $q->firstOrFail();}public static function ids(User $user){return $user->hasRole('Administrador')?Company::query()->pluck('id'):$user->companies()->whereHas('tenant.users',fn($q)=>$q->where('users.id',$user->id))->pluck('companies.id');}}
+
+namespace App\Services;
+
+use App\Models\Company;
+use App\Models\User;
+
+class CompanyAccess
+{
+    public static function ensure(User $user, string $companyId): Company
+    {
+        $query = Company::query()->whereKey($companyId);
+        $query->whereIn('tenant_id', TenantAccess::ids($user));
+        if (! TenantAccess::hasAllClients($user)) {
+            $query->whereHas('users', fn ($relation) => $relation->where('users.id', $user->id));
+        }
+
+        return $query->firstOrFail();
+    }
+
+    public static function ids(User $user)
+    {
+        $query = Company::query();
+        $query->whereIn('tenant_id', TenantAccess::ids($user));
+        if (! TenantAccess::hasAllClients($user)) {
+            $query->whereHas('users', fn ($relation) => $relation->where('users.id', $user->id));
+        }
+
+        return $query->pluck('id');
+    }
+}
