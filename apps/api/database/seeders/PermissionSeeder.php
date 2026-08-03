@@ -19,6 +19,8 @@ class PermissionSeeder extends Seeder
 
         $permissions = [
             'users.manage',
+            'tenants.view',
+            'tenants.manage',
             'companies.manage',
             'catalogs.view',
             'catalogs.manage',
@@ -40,6 +42,7 @@ class PermissionSeeder extends Seeder
 
         $auditor = Role::firstOrCreate(['name' => 'Auditor Fiscal', 'guard_name' => 'web']);
         $auditor->syncPermissions([
+            'tenants.view',
             'catalogs.view',
             'analyses.view',
             'analyses.create',
@@ -48,7 +51,7 @@ class PermissionSeeder extends Seeder
         ]);
 
         $viewer = Role::firstOrCreate(['name' => 'Consulta', 'guard_name' => 'web']);
-        $viewer->syncPermissions(['catalogs.view', 'analyses.view', 'reports.download']);
+        $viewer->syncPermissions(['tenants.view', 'catalogs.view', 'analyses.view', 'reports.download']);
 
         $email = (string) env('ADMIN_EMAIL');
         $password = (string) env('ADMIN_PASSWORD');
@@ -65,10 +68,16 @@ class PermissionSeeder extends Seeder
         $user->save();
         $user->syncRoles([$admin]);
 
+        $tenant = \App\Models\Tenant::firstOrCreate(
+            ['tax_id' => '99999999000191'],
+            ['legal_name' => 'Tenant Sintético de Demonstração', 'trade_name' => 'Demonstração', 'active' => true],
+        );
+        $tenant->users()->syncWithoutDetaching([$user->id]);
         $company = Company::firstOrCreate(
             ['tax_id' => '99999999000191'],
-            ['legal_name' => 'Empresa Sintética de Demonstração', 'trade_name' => 'Demonstração', 'active' => true],
+            ['tenant_id' => $tenant->id, 'legal_name' => 'Empresa Sintética de Demonstração', 'trade_name' => 'Demonstração', 'active' => true],
         );
+        if (! $company->tenant_id) $company->update(['tenant_id' => $tenant->id]);
         $company->users()->syncWithoutDetaching([$user->id => ['is_default' => true]]);
     }
 }

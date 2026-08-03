@@ -4,6 +4,10 @@ Plataforma web para importação e auditoria de NF-e XML, com validação de IBS
 CBS, formação da base de cálculo, NCM, CST, cClassTrib, conciliação documental e
 geração de relatórios PDF/Excel.
 
+Também oferece segregação por tenant e empresa, permissões explícitas de usuários,
+consulta assistida de CNPJ, visualização do XML original e do DANFE, análise crítica
+por camadas e exportação de logs globais ou vinculados a cada auditoria.
+
 ## Arquitetura
 
 - **Laravel 13 / PHP 8.4**: API, autenticação, RBAC, empresas, catálogos, lotes e relatórios.
@@ -73,3 +77,9 @@ python3 scripts/validate-demo-dataset.py
 ```
 
 O arquivo `examples/NotasFiscais-demo.zip` é sintético e não possui validade fiscal.
+
+## Senhas com caracteres reservados
+
+`DB_PASSWORD` aceita caracteres como `@`, `:`, `/` e `?` sem codificação manual.
+O motor monta a conexão a partir de `DB_HOST`, `DB_PORT`, `DB_DATABASE`,
+`DB_USERNAME` e `DB_PASSWORD`; não monte manualmente uma `DATABASE_URL` no Compose.

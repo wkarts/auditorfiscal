@@ -5,6 +5,7 @@ from zipfile import ZipFile,BadZipFile
 from hashlib import sha256
 from decimal import Decimal
 import json
+import re
 from .catalog import CatalogSnapshot
 from .cross_rules import apply_cross_document_rules
 from .reports.pdf_report import build_pdf
@@ -17,11 +18,15 @@ class AuditService:
     def run(self,payload:dict):
         catalog=CatalogSnapshot(payload['catalog_version_id']);documents=[];findings=[];events=[]
         with TemporaryDirectory(prefix='auditor-') as temp:
-            root=Path(temp);xml_candidates=[]
+            root=Path(temp);xml_candidates=[];pdf_candidates=[]
             for source in payload['source_files']:
-                local=self.storage.download(source['storage_path'],root/'sources'/source['original_name'])
-                if local.suffix.lower()=='.zip':xml_candidates.extend((p,source['id']) for p in self._safe_extract(local,root/'extracted'/source['id']))
+                safe_source_name=f"{source['id']}-{Path(source['original_name']).name}"
+                local=self.storage.download(source['storage_path'],root/'sources'/safe_source_name)
+                if local.suffix.lower()=='.zip':
+                    for candidate in self._safe_extract(local,root/'extracted'/source['id']):
+                        (xml_candidates if candidate.suffix.lower()=='.xml' else pdf_candidates).append((candidate,source['id']))
                 elif local.suffix.lower()=='.xml':xml_candidates.append((local,source['id']))
+                elif local.suffix.lower()=='.pdf':pdf_candidates.append((local,source['id']))
             for xml_path,source_id in xml_candidates:
                 data=xml_path.read_bytes();tmp_ref=sha256(data).hexdigest()
                 try:
@@ -33,6 +38,16 @@ class AuditService:
                     documents.append(doc);findings.extend(doc_findings)
                 except Exception as exc:
                     findings.append(finding('XML-PARSE-001','critical','document','XML inválido ou não suportado',str(exc),tmp_ref,evidence={'file':xml_path.name,'sha256':tmp_ref},impact='Documento não auditado.',action='Corrigir ou substituir o XML de origem.'))
+            documents_by_key={document.get('access_key'):document for document in documents if document.get('access_key')}
+            attached_danfe=set()
+            for pdf_path,_source_id in pdf_candidates:
+                match=re.search(r'(?<!\d)(\d{44})(?!\d)',pdf_path.name)
+                if not match or match.group(1) not in documents_by_key or match.group(1) in attached_danfe:continue
+                data=pdf_path.read_bytes()
+                if not data.startswith(b'%PDF-'):continue
+                access_key=match.group(1);danfe_path=f"batches/{payload['batch_id']}/danfe/{access_key}.pdf"
+                self.storage.put_bytes(data,danfe_path,content_type='application/pdf')
+                documents_by_key[access_key]['danfe_storage_path']=danfe_path;attached_danfe.add(access_key)
             event_map={e['access_key']:e for e in events if e.get('event_type')=='110111' and e.get('status_code') in {'135','136','155'}}
             for d in documents:
                 if d.get('access_key') in event_map:d['status']='cancelled';d['normalized']['cancellation_event']=event_map[d['access_key']]
@@ -55,8 +70,13 @@ class AuditService:
                 total=sum(m.file_size for m in members)
                 if total>settings.zip_max_uncompressed_mb*1024*1024:raise ValueError('ZIP excede o limite descompactado')
                 for m in members:
-                    if m.is_dir() or not m.filename.lower().endswith('.xml'):continue
-                    target=(dest/Path(m.filename).name).resolve()
+                    if m.is_dir() or Path(m.filename).suffix.lower() not in {'.xml','.pdf'}:continue
+                    member_path=Path(m.filename.replace('\\','/'))
+                    if member_path.is_absolute() or '..' in member_path.parts:raise ValueError('Caminho inseguro no ZIP')
+                    if (m.external_attr >> 16) & 0o170000 == 0o120000:raise ValueError('Link simbólico não permitido no ZIP')
+                    if m.flag_bits & 0x1:raise ValueError('Arquivo criptografado não permitido no ZIP')
+                    safe_name=f'{sha256(m.filename.encode()).hexdigest()[:12]}-{Path(m.filename).name}'
+                    target=(dest/safe_name).resolve()
                     if not target.is_relative_to(dest.resolve()):raise ValueError('Caminho inseguro no ZIP')
                     with z.open(m) as src,target.open('wb') as out:
                         while chunk:=src.read(1024*1024):out.write(chunk)

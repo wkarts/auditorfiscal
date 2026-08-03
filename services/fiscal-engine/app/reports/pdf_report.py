@@ -17,7 +17,7 @@ def build_pdf(path:Path,company:dict,period:dict,summary:dict,documents:list[dic
     doc=SimpleDocTemplate(str(path),pagesize=landscape(A4),rightMargin=10*mm,leftMargin=10*mm,topMargin=10*mm,bottomMargin=13*mm,title='Relatório Analítico e Sintético - IBS/CBS em NF-e',author='Auditor Fiscal')
     story=[]
     header=Table([[p('Relatório Analítico e Sintético - IBS/CBS em NF-e',title)],[p(f"{company.get('legal_name','')} | {period.get('start') or '—'} a {period.get('end') or '—'} | Catálogo {catalog.get('version','—')}",ParagraphStyle('sub',parent=body,textColor=colors.white,fontSize=8.5))]],colWidths=[landscape(A4)[0]-20*mm]);header.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),NAVY),('LEFTPADDING',(0,0),(-1,-1),9*mm),('RIGHTPADDING',(0,0),(-1,-1),9*mm),('TOPPADDING',(0,0),(-1,0),5*mm),('BOTTOMPADDING',(0,1),(-1,1),4*mm)]));story+=[header,Spacer(1,5*mm)]
-    kpis=[('XMLs analisados',len(documents),LIGHT),('Valor total das NF-e',money(summary.get('total_value')),MINT),('Base IBS/CBS',money(summary.get('ibs_cbs_base')),LIGHT),('IBS + CBS',money(Decimal(str(summary.get('ibs_value',0)))+Decimal(str(summary.get('cbs_value',0)))),MINT),('Entradas',f"{summary.get('input_count',0)} XMLs · {money(summary.get('input_value'))}",LIGHT),('Saídas',f"{summary.get('output_count',0)} XMLs · {money(summary.get('output_value'))}",LIGHT),('Itens NCM/Class OK',summary.get('classification_ok',0),WARN),('Críticas abertas',len(findings),DANGER)]
+    kpis=[('XMLs analisados',len(documents),LIGHT),('Valor total das NF-e',money(summary.get('total_value')),MINT),('Base IBS/CBS',money(summary.get('ibs_cbs_base')),LIGHT),('IBS + CBS',money(Decimal(str(summary.get('ibs_value',0)))+Decimal(str(summary.get('cbs_value',0)))),MINT),('Entradas',f"{summary.get('input_count',0)} XMLs · {money(summary.get('input_value'))}",LIGHT),('Saídas',f"{summary.get('output_count',0)} XMLs · {money(summary.get('output_value'))}",LIGHT),('Itens NCM/Class OK',summary.get('classification_ok',0),WARN),('Achados abertos',len(findings),DANGER)]
     cells=[]
     for label,val,bg in kpis:cells.append(Table([[p(label,center)],[p(f'<b>{val}</b>',ParagraphStyle('kv',parent=center,fontSize=12,leading=14,textColor=NAVY))]],colWidths=[66*mm],rowHeights=[8*mm,13*mm],style=[('BACKGROUND',(0,0),(-1,-1),bg),('BOX',(0,0),(-1,-1),.4,GRID),('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
     story.append(Table([cells[:4],cells[4:]],colWidths=[68.5*mm]*4,rowHeights=[23*mm,23*mm],style=[('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
@@ -46,7 +46,8 @@ def build_pdf(path:Path,company:dict,period:dict,summary:dict,documents:list[dic
     for d in documents:
         for i in d.get('items',[]):nrows.append([d.get('number'),i.get('item_number'),i.get('description'),f"{i.get('ncm') or '—'} / {i.get('ex_code') or '—'}",f"{i.get('actual_cst') or '—'} / {i.get('actual_cclass_trib') or '—'}",f"{i.get('expected_cst') or '—'} / {i.get('expected_cclass_trib') or '—'}",i.get('classification_status')])
     story += [_table(nrows,[18*mm,12*mm,76*mm,28*mm,40*mm,40*mm,50*mm],body,small),PageBreak()]
-    story += [p('6. Fontes, método e limitações',h1),_table([['Referência','Versão/uso'],['Catálogo CST/cClassTrib e NCM × ClassTrib',f"{catalog.get('version')} · SHA-256 {catalog.get('sha256','—')}"],['Motor fiscal',f"Cálculo item a item, Decimal half-up, template {template_version}"],['Documentos','XMLs são a fonte primária; DANFEs não participam do cálculo.'],['Limitações','Eventos ausentes permanecem como hipóteses; achados cadastrais/econômicos requerem validação fiscal humana.']],[82*mm,194*mm],body,small)]
+    story += [p('6. Conciliação econômica por chassi',h1),_reconciliation_table(documents,body,small),Spacer(1,4*mm),p('A conciliação utiliza apenas documentos presentes na amostra. Ausência de entrada é uma lacuna de dados, não uma conclusão de irregularidade.',body),PageBreak()]
+    story += [p('7. Fontes, método e limitações',h1),_table([['Referência','Versão/uso'],['Catálogo CST/cClassTrib e NCM × ClassTrib',f"{catalog.get('version')} · SHA-256 {catalog.get('sha256','—')}"],['Motor fiscal',f"Cálculo item a item, Decimal half-up, template {template_version}"],['Documentos','XMLs são a fonte primária; DANFEs não participam do cálculo.'],['Limitações','Eventos ausentes permanecem como hipóteses; achados cadastrais/econômicos requerem validação fiscal humana.']],[82*mm,194*mm],body,small)]
     doc.build(story,onFirstPage=footer,onLaterPages=footer)
 
 def _table(rows,widths,body,small):
@@ -60,3 +61,17 @@ def _document_table(documents,body,small):
     return _table(rows,[18*mm,24*mm,77*mm,31*mm,31*mm,23*mm,25*mm,14*mm,28*mm],body,small)
 def _nf_for(f,documents):
     ref=f.get('document_ref');d=next((x for x in documents if x.get('document_ref')==ref),None);return d.get('number') if d else 'Lote'
+def _reconciliation_table(documents,body,small):
+    by={}
+    for document in documents:
+        for item in document.get('items',[]):
+            if item.get('chassis'):by.setdefault(item['chassis'],[]).append((document,item))
+    rows=[['Chassi','NF entrada','NF saída','Custo','Venda','Margem','Situação']]
+    for chassis,entries in by.items():
+        inputs=sorted((x for x in entries if x[0].get('direction')=='entrada'),key=lambda x:x[0].get('issued_at') or '')
+        outputs=sorted((x for x in entries if x[0].get('direction')=='saida'),key=lambda x:x[0].get('issued_at') or '')
+        output=outputs[-1] if outputs else None;input_row=inputs[-1] if inputs else None
+        cost=Decimal(str(input_row[1].get('product_value',0))) if input_row else Decimal('0');sale=Decimal(str(output[1].get('product_value',0))) if output else Decimal('0')
+        status='Entrada ausente na amostra' if output and not input_row else ('Em estoque/sem saída' if input_row and not output else ('Margem negativa' if sale-cost<0 else 'Conciliado'))
+        rows.append([chassis,input_row[0].get('number') if input_row else '—',output[0].get('number') if output else '—',money(cost),money(sale),money(sale-cost) if input_row and output else '—',status])
+    return _table(rows,[41*mm,27*mm,27*mm,36*mm,36*mm,36*mm,73*mm],body,small)

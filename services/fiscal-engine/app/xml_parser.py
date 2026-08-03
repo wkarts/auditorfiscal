@@ -30,6 +30,26 @@ def _iso(value:str):
 
 def _tax_id(node,prefix):return _text(node,f'{prefix}/n:CNPJ') or _text(node,f'{prefix}/n:CPF') or None
 
+def _address(node,prefix):
+    return {key:value for key,value in {
+        'street':_text(node,f'{prefix}/n:xLgr'),'number':_text(node,f'{prefix}/n:nro'),
+        'complement':_text(node,f'{prefix}/n:xCpl'),'district':_text(node,f'{prefix}/n:xBairro'),
+        'city_code':_text(node,f'{prefix}/n:cMun'),'city':_text(node,f'{prefix}/n:xMun'),
+        'state':_text(node,f'{prefix}/n:UF'),'postal_code':_text(node,f'{prefix}/n:CEP'),
+        'country':_text(node,f'{prefix}/n:xPais'),'phone':_text(node,f'{prefix}/n:fone'),
+    }.items() if value}
+
+def _party(node,prefix,address_tag):
+    return {key:value for key,value in {
+        'tax_id':_tax_id(node,prefix),'name':_text(node,f'{prefix}/n:xNome'),
+        'trade_name':_text(node,f'{prefix}/n:xFant'),'state_registration':_text(node,f'{prefix}/n:IE'),
+        'municipal_registration':_text(node,f'{prefix}/n:IM'),'email':_text(node,f'{prefix}/n:email'),
+        'address':_address(node,f'{prefix}/n:{address_tag}'),
+    }.items() if value not in ('',None,{})}
+
+def _money_map(node,prefix,names):
+    return {name:str(_money(_dec(node,f'{prefix}/n:{name}'))) for name in names if _text(node,f'{prefix}/n:{name}')!=''}
+
 def finding(rule,severity,category,title,description,document_ref,item_number=None,evidence=None,impact=None,action=None,confidence=None):
     return {'document_ref':document_ref,'item_number':item_number,'rule_code':rule,'rule_version':'1.0.0','severity':severity,'category':category,'title':title,'description':description,'impact':impact,'recommended_action':action,'status':'open','confidence':confidence,'evidence':evidence or {}}
 
@@ -96,7 +116,36 @@ def parse_invoice(data:bytes,source_file_id:str,xml_storage_path:str,catalog:Cat
             findings.append(finding('NCM-VEHICLE-001','high','ncm','NCM incompatível com veículo','Item identificado como bem móvel usado/veículo está fora do capítulo 87.',document_ref,nitem,{'ncm':ncm,'description':_text(prod,'./n:xProd'),'chassis':chassis_match.group(1) if chassis_match else None},'Pode afetar incidência, obrigações acessórias e Imposto Seletivo.','Revisar o cadastro fiscal do produto.'))
         if direction=='entrada' and used and actual_cst=='410' and actual_cc=='410999':
             findings.append(finding('USED-GOOD-CLASS-001','high','classification','Aquisição de bem usado em classificação genérica','Aquisição onerosa para revenda foi informada em cClassTrib 410999.',document_ref,nitem,{'actual':'410999','candidate':'410017','indBemMovelUsado':True},'Pode impedir a identificação automática do crédito presumido.','Validar o uso de CST 410/cClassTrib 410017 com a assessoria fiscal e a tabela vigente.'))
-        items.append({'item_number':nitem,'product_code':_text(prod,'./n:cProd') or None,'description':_text(prod,'./n:xProd') or None,'ncm':ncm or None,'ex_code':ex_code,'cfop':_text(prod,'./n:CFOP') or None,'actual_cst':actual_cst,'actual_cclass_trib':actual_cc,'expected_cst':expected_cst,'expected_cclass_trib':expected_cc,'classification_status':class_status,'product_value':str(_money(components['vProd'])),'ibs_cbs_base_xml':str(base_xml),'ibs_cbs_base_recalculated':str(base_calc),'base_difference':str(_money(base_xml-base_calc)),'ibs_xml':str(ibs_xml),'ibs_recalculated':str(ibs_calc),'cbs_xml':str(cbs_xml),'cbs_recalculated':str(cbs_calc),'tax_components':{k:str(v) for k,v in components.items()},'catalog_match':evidence,'chassis':chassis_match.group(1).upper() if chassis_match else None,'plate':plate_match.group(1).upper() if plate_match else None,'used_movable_good':used,'pis_cofins':str(_money(components['vPIS']+components['vCOFINS'])),'pis_cofins_base':str(pis_cofins_base)})
+        tax_groups={}
+        for group in ['ICMS','IPI','PIS','COFINS','IBSCBS','ISSQN','II','IS']:
+            elements=tax.xpath(f'./n:{group}//*[not(*)]',namespaces=NS)
+            values={etree.QName(element).localname:(element.text or '').strip() for element in elements if (element.text or '').strip()}
+            if values:tax_groups[group]=values
+        details={
+            'ean':_text(prod,'./n:cEAN') or None,'ean_taxable':_text(prod,'./n:cEANTrib') or None,
+            'unit':_text(prod,'./n:uCom') or None,'quantity':_text(prod,'./n:qCom') or None,
+            'unit_value':_text(prod,'./n:vUnCom') or None,'taxable_unit':_text(prod,'./n:uTrib') or None,
+            'taxable_quantity':_text(prod,'./n:qTrib') or None,'taxable_unit_value':_text(prod,'./n:vUnTrib') or None,
+            'origin':_text(tax,'.//n:ICMS/*/n:orig') or None,'icms_cst':_text(tax,'.//n:ICMS/*/n:CST') or _text(tax,'.//n:ICMS/*/n:CSOSN') or None,
+            'pis_cst':_text(tax,'.//n:PIS/*/n:CST') or None,'cofins_cst':_text(tax,'.//n:COFINS/*/n:CST') or None,
+            'additional_information':additional or None,'taxes':tax_groups,
+        }
+        items.append({'item_number':nitem,'product_code':_text(prod,'./n:cProd') or None,'description':_text(prod,'./n:xProd') or None,'ncm':ncm or None,'ex_code':ex_code,'cfop':_text(prod,'./n:CFOP') or None,'actual_cst':actual_cst,'actual_cclass_trib':actual_cc,'expected_cst':expected_cst,'expected_cclass_trib':expected_cc,'classification_status':class_status,'product_value':str(_money(components['vProd'])),'ibs_cbs_base_xml':str(base_xml),'ibs_cbs_base_recalculated':str(base_calc),'base_difference':str(_money(base_xml-base_calc)),'ibs_xml':str(ibs_xml),'ibs_recalculated':str(ibs_calc),'cbs_xml':str(cbs_xml),'cbs_recalculated':str(cbs_calc),'tax_components':{k:str(v) for k,v in components.items()},'catalog_match':evidence,'details':details,'chassis':chassis_match.group(1).upper() if chassis_match else None,'plate':plate_match.group(1).upper() if plate_match else None,'used_movable_good':used,'pis_cofins':str(_money(components['vPIS']+components['vCOFINS'])),'pis_cofins_base':str(pis_cofins_base)})
     total=sum((Decimal(i['product_value']) for i in items),ZERO);base=sum((Decimal(i['ibs_cbs_base_xml']) for i in items),ZERO);ibs=sum((Decimal(i['ibs_xml']) for i in items),ZERO);cbs=sum((Decimal(i['cbs_xml']) for i in items),ZERO)
-    doc={'document_ref':document_ref,'source_file_id':source_file_id,'access_key':access_key or None,'model':_text(inf,'./n:ide/n:mod') or None,'series':_text(inf,'./n:ide/n:serie') or None,'number':_text(inf,'./n:ide/n:nNF') or None,'issued_at':issued_at,'direction':direction,'status':'authorized' if _text(root,'.//n:protNFe/n:infProt/n:cStat') in {'100','150'} else 'parsed','issuer_tax_id':issuer,'recipient_tax_id':recipient,'total_value':str(_money(_dec(inf,'./n:total/n:ICMSTot/n:vNF') or total)),'ibs_cbs_base':str(_money(base)),'ibs_value':str(_money(ibs)),'cbs_value':str(_money(cbs)),'item_count':len(items),'normalized':{'issuer_name':_text(inf,'./n:emit/n:xNome'),'recipient_name':_text(inf,'./n:dest/n:xNome'),'nature':_text(inf,'./n:ide/n:natOp'),'protocol':_text(root,'.//n:protNFe/n:infProt/n:nProt'),'authorization_status':_text(root,'.//n:protNFe/n:infProt/n:cStat'),'xml_sha256':sha256(data).hexdigest()},'xml_storage_path':xml_storage_path,'items':items}
+    payments=[]
+    for payment in inf.xpath('./n:pag/n:detPag',namespaces=NS):
+        payments.append({'method':_text(payment,'./n:tPag'),'value':str(_money(_dec(payment,'./n:vPag'))),'description':_text(payment,'./n:xPag') or None})
+    references=[value for value in inf.xpath('./n:ide/n:NFref/n:refNFe/text()',namespaces=NS) if value]
+    normalized={
+        'issuer_name':_text(inf,'./n:emit/n:xNome'),'recipient_name':_text(inf,'./n:dest/n:xNome'),'nature':_text(inf,'./n:ide/n:natOp'),
+        'identification':{'nature':_text(inf,'./n:ide/n:natOp'),'operation_type':tp_nf,'destination':_text(inf,'./n:ide/n:idDest'),'purpose':_text(inf,'./n:ide/n:finNFe'),'consumer':_text(inf,'./n:ide/n:indFinal'),'presence':_text(inf,'./n:ide/n:indPres'),'environment':_text(inf,'./n:ide/n:tpAmb'),'references':references},
+        'issuer':_party(inf,'./n:emit','enderEmit'),'recipient':_party(inf,'./n:dest','enderDest'),
+        'totals':_money_map(inf,'./n:total/n:ICMSTot',['vBC','vICMS','vICMSDeson','vFCP','vBCST','vST','vFCPST','vProd','vFrete','vSeg','vDesc','vII','vIPI','vPIS','vCOFINS','vOutro','vNF','vTotTrib']),
+        'transport':{'freight_mode':_text(inf,'./n:transp/n:modFrete'),'carrier':_party(inf,'./n:transp/n:transporta','enderTransporta'),'vehicle_plate':_text(inf,'./n:transp/n:veicTransp/n:placa'),'vehicle_state':_text(inf,'./n:transp/n:veicTransp/n:UF')},
+        'billing':{'invoice_number':_text(inf,'./n:cobr/n:fat/n:nFat'),'original_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vOrig'))),'discount':str(_money(_dec(inf,'./n:cobr/n:fat/n:vDesc'))),'net_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vLiq')))},
+        'payments':payments,'additional_information':{'tax_authority':_text(inf,'./n:infAdic/n:infAdFisco'),'taxpayer':_text(inf,'./n:infAdic/n:infCpl')},
+        'protocol':{'number':_text(root,'.//n:protNFe/n:infProt/n:nProt'),'status_code':_text(root,'.//n:protNFe/n:infProt/n:cStat'),'status_reason':_text(root,'.//n:protNFe/n:infProt/n:xMotivo'),'received_at':_iso(_text(root,'.//n:protNFe/n:infProt/n:dhRecbto'))},
+        'xml_sha256':sha256(data).hexdigest(),
+    }
+    doc={'document_ref':document_ref,'source_file_id':source_file_id,'access_key':access_key or None,'model':_text(inf,'./n:ide/n:mod') or None,'series':_text(inf,'./n:ide/n:serie') or None,'number':_text(inf,'./n:ide/n:nNF') or None,'issued_at':issued_at,'direction':direction,'status':'authorized' if _text(root,'.//n:protNFe/n:infProt/n:cStat') in {'100','150'} else 'parsed','issuer_tax_id':issuer,'recipient_tax_id':recipient,'total_value':str(_money(_dec(inf,'./n:total/n:ICMSTot/n:vNF') or total)),'ibs_cbs_base':str(_money(base)),'ibs_value':str(_money(ibs)),'cbs_value':str(_money(cbs)),'item_count':len(items),'normalized':normalized,'xml_storage_path':xml_storage_path,'danfe_storage_path':None,'items':items}
     return doc,findings
