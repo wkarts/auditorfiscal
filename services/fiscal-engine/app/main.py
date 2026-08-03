@@ -7,7 +7,7 @@ from .audit_service import AuditService
 from .catalog_import import normalize_catalog
 from .database import check_database_connection
 from .security import require_internal_token
-app=FastAPI(title='Auditor Fiscal Engine',version='1.1.7',docs_url='/docs')
+app=FastAPI(title='Auditor Fiscal Engine',version='1.1.8',docs_url='/docs')
 app.mount('/metrics',make_asgi_app())
 @app.get('/health/live')
 def live():return {'status':'ok','service':'fiscal-engine'}
