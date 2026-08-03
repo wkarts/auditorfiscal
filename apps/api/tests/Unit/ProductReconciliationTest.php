@@ -20,6 +20,8 @@ class ProductReconciliationTest extends TestCase
 
         $this->assertCount(1, $rows);
         $this->assertSame('gtin', $rows[0]['identity_type']);
+        $this->assertSame('10', $rows[0]['input_quantity']);
+        $this->assertSame('4', $rows[0]['output_quantity']);
         $this->assertSame('40.00', $rows[0]['estimated_cost']);
         $this->assertSame('20.00', $rows[0]['margin']);
         $this->assertSame('reconciled_estimate', $rows[0]['status']);

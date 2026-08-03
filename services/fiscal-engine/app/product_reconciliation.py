@@ -21,6 +21,13 @@ def money(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+def decimal_text(value: Decimal) -> str:
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def _normalized(value: str | None) -> str:
     raw = unicodedata.normalize("NFKD", str(value or ""))
     ascii_value = "".join(character for character in raw if not unicodedata.combining(character))
@@ -157,8 +164,8 @@ def build_product_reconciliation(documents: list[dict]) -> list[dict]:
             "description": next((item.get("description") for _, item, _ in entries if item.get("description")), None),
             "ncm": next((item.get("ncm") for _, item, _ in entries if item.get("ncm")), None),
             "unit": next(((item.get("details") or {}).get("unit") for _, item, _ in entries if (item.get("details") or {}).get("unit")), None),
-            "input_quantity": str(input_quantity.normalize()) if input_quantity else "0",
-            "output_quantity": str(output_quantity.normalize()) if output_quantity else "0",
+            "input_quantity": decimal_text(input_quantity),
+            "output_quantity": decimal_text(output_quantity),
             "input_value": str(input_value),
             "output_value": str(output_value),
             "estimated_unit_cost": str(unit_cost) if unit_cost is not None else None,

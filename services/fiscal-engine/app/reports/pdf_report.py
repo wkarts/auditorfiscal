@@ -67,6 +67,7 @@ def _reconciliation_table(documents,body,small):
     statuses={'in_stock':'Em estoque/sem saída','missing_input':'Entrada ausente na amostra','insufficient_quantity_data':'Quantidade insuficiente','insufficient_input_quantity':'Estoque inicial/entradas insuficientes','review_identity':'Revisar correspondência','negative_margin':'Margem negativa','zero_margin':'Margem zero','reconciled':'Conciliado','reconciled_estimate':'Estimativa conciliada'}
     rows=[['Produto / identificador','Tipo / confiança','Qtd. entrada','Qtd. saída','Custo estimado','Venda','Margem estimada','Situação']]
     for row in build_product_reconciliation(documents):
-        rows.append([row['identifier'],f"{row['identity_type']} / {row['confidence']}",row['input_quantity'],row['output_quantity'],money_or_dash(row['estimated_cost']),money(row['output_value']),money_or_dash(row['margin']),statuses.get(row['status'],row['status'])])
+        identity_types={'chassis':'Chassi','imei':'IMEI','serial':'Série','aggregation_code':'Agregação','lot':'Lote','gtin':'GTIN','ncm_description':'NCM + descrição'};confidence={'exact':'Exata','high':'Alta','indicative':'Indicativa'}
+        rows.append([row['identifier'],f"{identity_types.get(row['identity_type'],row['identity_type'])} / {confidence.get(row['confidence'],row['confidence'])}",row['input_quantity'],row['output_quantity'],money_or_dash(row['estimated_cost']),money(row['output_value']),money_or_dash(row['margin']),statuses.get(row['status'],row['status'])])
     if len(rows)==1:rows.append(['Nenhum identificador de produto suficiente para conciliação','—','—','—','—','—','—','Não avaliado'])
     return _table(rows,[57*mm,33*mm,24*mm,24*mm,34*mm,31*mm,34*mm,39*mm],body,small)

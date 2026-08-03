@@ -60,8 +60,8 @@ class ProductReconciliation
                 'description' => $firstItem->description ?? null,
                 'ncm' => $firstItem->ncm ?? null,
                 'unit' => data_get($firstItem->details, 'unit'),
-                'input_quantity' => $inputQuantity,
-                'output_quantity' => $outputQuantity,
+                'input_quantity' => $this->decimalText($inputQuantity),
+                'output_quantity' => $this->decimalText($outputQuantity),
                 'input_value' => $inputValue,
                 'output_value' => $outputValue,
                 'estimated_unit_cost' => $unitCost,
@@ -162,6 +162,12 @@ class ProductReconciliation
     private function roundMoney(string $value): string
     {
         return bcadd($value, str_starts_with($value, '-') ? '-0.005' : '0.005', 2);
+    }
+
+    private function decimalText(string $value): string
+    {
+        $text = str_contains($value, '.') ? rtrim(rtrim($value, '0'), '.') : $value;
+        return $text === '' || $text === '-0' ? '0' : $text;
     }
 
     private function validGtin(?string $value): ?string

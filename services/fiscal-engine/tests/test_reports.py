@@ -17,7 +17,7 @@ def test_empty_reports_are_generated(tmp_path:Path):
 
 def test_generic_product_reconciliation_is_exported_to_xlsx(tmp_path: Path):
     summary={'total_value':'160','ibs_cbs_base':'0','ibs_value':'0','cbs_value':'0','input_count':1,'output_count':1,'input_value':'100','output_value':'60','classification_ok':0}
-    common={'item_number':1,'product_code':'CAM-1','description':'CAMISETA','ncm':'61091000','ex_code':None,'cfop':'5102','actual_cst':None,'actual_cclass_trib':None,'expected_cst':None,'expected_cclass_trib':None,'classification_status':'NCM_NOT_PARAMETERIZED','tax_components':{},'ibs_cbs_base_xml':'0','ibs_cbs_base_recalculated':'0','base_difference':'0','ibs_xml':'0','ibs_recalculated':'0','cbs_xml':'0','cbs_recalculated':'0','details':{'ean':'7891234567895','quantity':'1','unit':'UN'}}
+    common={'item_number':1,'product_code':'IOG-1','description':'IOGURTE','ncm':'04031000','ex_code':None,'cfop':'5102','actual_cst':None,'actual_cclass_trib':None,'expected_cst':None,'expected_cclass_trib':None,'classification_status':'NCM_NOT_PARAMETERIZED','tax_components':{},'ibs_cbs_base_xml':'0','ibs_cbs_base_recalculated':'0','base_difference':'0','ibs_xml':'0','ibs_recalculated':'0','cbs_xml':'0','cbs_recalculated':'0','details':{'ean':'7891234567895','quantity':'1','unit':'UN'}}
     documents=[
         {'number':'1','document_ref':'1','issued_at':'2026-01-01T10:00:00-03:00','direction':'entrada','status':'authorized','access_key':'1'*44,'issuer_tax_id':'1','recipient_tax_id':'2','total_value':'100','ibs_cbs_base':'0','ibs_value':'0','cbs_value':'0','item_count':1,'items':[dict(common,product_value='100')]},
         {'number':'2','document_ref':'2','issued_at':'2026-01-02T10:00:00-03:00','direction':'saida','status':'authorized','access_key':'2'*44,'issuer_tax_id':'2','recipient_tax_id':'3','total_value':'60','ibs_cbs_base':'0','ibs_value':'0','cbs_value':'0','item_count':1,'items':[dict(common,product_value='60')]},
@@ -30,3 +30,4 @@ def test_generic_product_reconciliation_is_exported_to_xlsx(tmp_path: Path):
         shared=archive.read('xl/sharedStrings.xml').decode('utf-8')
     assert 'Produto / identificador' in shared
     assert 'GTIN 7891234567895' in shared
+    assert '04031000' in shared

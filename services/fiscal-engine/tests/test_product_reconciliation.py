@@ -71,5 +71,6 @@ def test_reconciles_market_lot_without_vehicle_fields():
     ])
 
     assert rows[0]["identity_type"] == "lot"
+    assert rows[0]["input_quantity"] == "30"
     assert rows[0]["estimated_cost"] == "50.00"
     assert rows[0]["margin"] == "30.00"
