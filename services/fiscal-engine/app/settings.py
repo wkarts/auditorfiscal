@@ -1,8 +1,14 @@
 from pydantic import model_validator
 from pydantic_settings import BaseSettings,SettingsConfigDict
+from sqlalchemy import URL,make_url
 class Settings(BaseSettings):
     model_config=SettingsConfigDict(env_file='.env',extra='ignore')
-    database_url:str='postgresql+psycopg://auditor@auditor-fiscal-postgres:5432/auditor_fiscal'
+    database_url:str|None=None
+    db_host:str='auditor-fiscal-postgres'
+    db_port:int=5432
+    db_database:str='auditor_fiscal'
+    db_username:str='auditor'
+    db_password:str=''
     fiscal_engine_token:str=''
     aws_access_key_id:str='auditor'
     aws_secret_access_key:str=''
@@ -16,6 +22,19 @@ class Settings(BaseSettings):
     zip_max_files:int=50000
     zip_max_uncompressed_mb:int=4096
     report_template_version:str='ibs-cbs-executivo@1.0.0'
+
+    @property
+    def sqlalchemy_url(self)->URL:
+        if self.database_url:
+            return make_url(self.database_url)
+        return URL.create(
+            drivername='postgresql+psycopg',
+            username=self.db_username,
+            password=self.db_password,
+            host=self.db_host,
+            port=self.db_port,
+            database=self.db_database,
+        )
 
     @model_validator(mode='after')
     def use_minio_credentials_when_aws_credentials_are_empty(self):

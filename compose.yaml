@@ -125,7 +125,11 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${DB_USERNAME}:${DB_PASSWORD}@auditor-fiscal-postgres:5432/${DB_DATABASE}
+      DB_HOST: auditor-fiscal-postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
     depends_on:
       auditor-fiscal-postgres:
         condition: service_healthy
@@ -136,7 +140,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=5)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)"
       interval: 15s
       timeout: 10s
       retries: 10

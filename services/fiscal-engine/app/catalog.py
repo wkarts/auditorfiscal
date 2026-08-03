@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import date
-from sqlalchemy import create_engine,text
-from .settings import settings
+from sqlalchemy import text
+from .database import create_database_engine
 @dataclass(slots=True)
 class ParamEntry:
     id:str;ncm:str;ex_code:str|None;expected_cst:str|None;expected_cclass_trib:str|None;description:str|None;status:str;validation_issues:list;source_row:int|None;reduction_type:str|None;valid_from:date|None;valid_to:date|None
@@ -9,7 +9,7 @@ class CatalogSnapshot:
     def __init__(self,version_id:str):
         self.version_id=version_id;self.issues=[];self.by_key:dict[tuple[str,str|None],list[ParamEntry]]={};self.cclass:dict[str,dict]={};self.cst:set[str]=set();self._load()
     def _load(self):
-        engine=create_engine(settings.database_url,pool_pre_ping=True)
+        engine=create_database_engine()
         with engine.connect() as c:
             for r in c.execute(text('SELECT code,severity,source_sheet,source_row,message,context FROM catalog_import_issues WHERE catalog_version_id=:v'),{'v':self.version_id}).mappings():self.issues.append(dict(r))
             for r in c.execute(text('SELECT cst FROM cst_catalog_entries WHERE catalog_version_id=:v'),{'v':self.version_id}).mappings():self.cst.add(r['cst'])

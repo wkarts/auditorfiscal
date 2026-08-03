@@ -54,7 +54,7 @@ jobs:
           DB_PORT=5432
           DB_DATABASE=auditor_fiscal
           DB_USERNAME=auditor
-          DB_PASSWORD=${TEST_PASSWORD}
+          DB_PASSWORD=${TEST_PASSWORD}@
           REDIS_HOST=auditor-fiscal-redis
           REDIS_PORT=6379
           REDIS_PASSWORD=${TEST_PASSWORD}
@@ -181,7 +181,7 @@ jobs:
           wait_url API-live http://127.0.0.1:18080/api/v1/health/live
           wait_url API-ready http://127.0.0.1:18080/api/v1/health/ready
           wait_url Web http://127.0.0.1:18081/health
-          wait_url Fiscal-engine http://127.0.0.1:18082/health/live
+          wait_url Fiscal-engine http://127.0.0.1:18082/health/ready
 
       - name: Validate stable and idempotent deployment
         shell: bash
