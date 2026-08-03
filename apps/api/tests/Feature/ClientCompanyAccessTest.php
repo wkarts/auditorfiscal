@@ -124,7 +124,7 @@ class ClientCompanyAccessTest extends TestCase
     public function test_platform_master_has_unrestricted_access_to_all_accounts(): void
     {
         $this->seedScenario();
-        DB::table('users')->insert(['id' => 9, 'tenant_id' => null, 'name' => 'Master', 'email' => 'master@example.test', 'password' => 'hash', 'active' => true, 'all_clients' => true, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('users')->insert(['id' => 9, 'tenant_id' => null, 'name' => 'Master', 'email' => 'master@example.com', 'password' => 'hash', 'active' => true, 'all_clients' => true, 'created_at' => now(), 'updated_at' => now()]);
         DB::table('roles')->insert(['id' => 9, 'name' => 'Administrador', 'guard_name' => 'web', 'created_at' => now(), 'updated_at' => now()]);
         DB::table('model_has_roles')->insert(['role_id' => 9, 'model_type' => User::class, 'model_id' => 9]);
         $master = User::query()->findOrFail(9);
@@ -139,22 +139,22 @@ class ClientCompanyAccessTest extends TestCase
         $this->seedScenario();
         $user = User::query()->findOrFail(1);
 
-        $clientRequest = Request::create('/', 'PATCH', ['tax_id' => '55.555.555/0001-55']);
+        $clientRequest = Request::create('/', 'PATCH', ['tax_id' => '66.666.666/6666-66']);
         $clientRequest->setUserResolver(fn () => $user);
         (new CompanyController)->update($clientRequest, Company::query()->findOrFail('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
 
-        $accountRequest = Request::create('/', 'PATCH', ['tax_id' => '66.666.666/0001-66']);
+        $accountRequest = Request::create('/', 'PATCH', ['tax_id' => '77.777.777/7777-77']);
         $accountRequest->setUserResolver(fn () => $user);
         (new TenantController)->update($accountRequest, Tenant::query()->findOrFail('11111111-1111-4111-8111-111111111111'));
 
-        $this->assertDatabaseHas('companies', ['id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'tax_id' => '55555555000155']);
-        $this->assertDatabaseHas('tenants', ['id' => '11111111-1111-4111-8111-111111111111', 'tax_id' => '66666666000166']);
+        $this->assertDatabaseHas('companies', ['id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'tax_id' => '66666666666666']);
+        $this->assertDatabaseHas('tenants', ['id' => '11111111-1111-4111-8111-111111111111', 'tax_id' => '77777777777777']);
     }
 
     public function test_master_creates_user_for_account_with_selected_clients(): void
     {
         $this->seedScenario();
-        DB::table('users')->insert(['id' => 9, 'tenant_id' => null, 'name' => 'Master', 'email' => 'master@example.test', 'password' => 'hash', 'active' => true, 'all_clients' => true, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('users')->insert(['id' => 9, 'tenant_id' => null, 'name' => 'Master', 'email' => 'master@example.com', 'password' => 'hash', 'active' => true, 'all_clients' => true, 'created_at' => now(), 'updated_at' => now()]);
         DB::table('roles')->insert([
             ['id' => 1, 'name' => 'Auditor Fiscal', 'guard_name' => 'web', 'created_at' => now(), 'updated_at' => now()],
             ['id' => 9, 'name' => 'Administrador', 'guard_name' => 'web', 'created_at' => now(), 'updated_at' => now()],
@@ -163,7 +163,7 @@ class ClientCompanyAccessTest extends TestCase
         $master = User::query()->findOrFail(9);
         $request = Request::create('/', 'POST', [
             'name' => 'Usuário Codesplan',
-            'email' => 'codesplan@example.test',
+            'email' => 'codesplan@example.com',
             'password' => 'SenhaForte123!',
             'role' => 'Auditor Fiscal',
             'account_id' => '11111111-1111-4111-8111-111111111111',
@@ -174,7 +174,7 @@ class ClientCompanyAccessTest extends TestCase
 
         (new UserController)->store($request);
 
-        $created = User::query()->where('email', 'codesplan@example.test')->firstOrFail();
+        $created = User::query()->where('email', 'codesplan@example.com')->firstOrFail();
         $this->assertSame('11111111-1111-4111-8111-111111111111', $created->tenant_id);
         $this->assertFalse($created->all_clients);
         $this->assertDatabaseHas('company_user', ['company_id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'user_id' => $created->id]);
@@ -184,15 +184,15 @@ class ClientCompanyAccessTest extends TestCase
     private function seedScenario(): void
     {
         DB::table('tenants')->insert([
-            ['id' => '11111111-1111-4111-8111-111111111111', 'legal_name' => 'Codesplan', 'tax_id' => '11111111000111', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
-            ['id' => '22222222-2222-4222-8222-222222222222', 'legal_name' => 'Outra Assinante', 'tax_id' => '22222222000122', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => '11111111-1111-4111-8111-111111111111', 'legal_name' => 'Codesplan', 'tax_id' => '11111111111111', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => '22222222-2222-4222-8222-222222222222', 'legal_name' => 'Outra Assinante', 'tax_id' => '22222222222222', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
         ]);
-        DB::table('users')->insert(['id' => 1, 'tenant_id' => '11111111-1111-4111-8111-111111111111', 'name' => 'Auditor Codesplan', 'email' => 'auditor@example.test', 'password' => 'hash', 'active' => true, 'all_clients' => false, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('users')->insert(['id' => 1, 'tenant_id' => '11111111-1111-4111-8111-111111111111', 'name' => 'Auditor Codesplan', 'email' => 'auditor@example.com', 'password' => 'hash', 'active' => true, 'all_clients' => false, 'created_at' => now(), 'updated_at' => now()]);
         DB::table('tenant_user')->insert(['tenant_id' => '11111111-1111-4111-8111-111111111111', 'user_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
         DB::table('companies')->insert([
-            ['id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'tenant_id' => '11111111-1111-4111-8111-111111111111', 'legal_name' => 'Dubahia', 'tax_id' => '33333333000133', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
-            ['id' => 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'tenant_id' => '11111111-1111-4111-8111-111111111111', 'legal_name' => 'Unifrio', 'tax_id' => '44444444000144', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
-            ['id' => 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'tenant_id' => '22222222-2222-4222-8222-222222222222', 'legal_name' => 'Cliente de Outra Conta', 'tax_id' => '55555555000155', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'tenant_id' => '11111111-1111-4111-8111-111111111111', 'legal_name' => 'Dubahia', 'tax_id' => '33333333333333', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'tenant_id' => '11111111-1111-4111-8111-111111111111', 'legal_name' => 'Unifrio', 'tax_id' => '44444444444444', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'tenant_id' => '22222222-2222-4222-8222-222222222222', 'legal_name' => 'Cliente de Outra Conta', 'tax_id' => '55555555555555', 'active' => true, 'settings' => '{}', 'created_at' => now(), 'updated_at' => now()],
         ]);
         DB::table('company_user')->insert(['company_id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'user_id' => 1, 'is_default' => true, 'created_at' => now(), 'updated_at' => now()]);
     }
