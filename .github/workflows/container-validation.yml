@@ -338,6 +338,43 @@ jobs:
             sleep 2
           done
 
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $TOKEN" \
+            "http://127.0.0.1:18080/api/v1/analyses/$ANALYSIS_ID/logs?per_page=200" \
+            | python3 -c 'import json,sys; events={item["event"] for item in json.load(sys.stdin)["data"]}; assert {"processing_started","request_started","completed"} <= events, events'
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $TOKEN" \
+            "http://127.0.0.1:18080/api/v1/application-logs?analysis_batch_id=$ANALYSIS_ID" \
+            | python3 -c 'import json,sys; assert len(json.load(sys.stdin)["data"]) >= 3'
+
+          REPROCESS_ID="$(curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data '{}' \
+            "http://127.0.0.1:18080/api/v1/analyses/$ANALYSIS_ID/reprocess" \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["status"] == "queued"; assert data["reprocessed_from_id"]; print(data["id"])')"
+
+          for attempt in $(seq 1 90); do
+            REPROCESS_RESPONSE="$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer $TOKEN" \
+              "http://127.0.0.1:18080/api/v1/analyses/$REPROCESS_ID")"
+            REPROCESS_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<< "$REPROCESS_RESPONSE")"
+            if [[ "$REPROCESS_STATUS" == completed ]]; then
+              python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["document_count"] >= 1; assert data["reprocessed_from"]["id"]' <<< "$REPROCESS_RESPONSE"
+              break
+            fi
+            if [[ "$REPROCESS_STATUS" == failed ]]; then
+              printf 'Reprocessamento falhou: %s\n' "$REPROCESS_RESPONSE" >&2
+              exit 1
+            fi
+            if (( attempt == 90 )); then
+              printf 'Timeout aguardando reprocessamento: %s\n' "$REPROCESS_RESPONSE" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
       - name: Verify image runtime contracts
         run: |
           docker run --rm --entrypoint php auditor-fiscal/api:pr -m | grep -Fx sockets

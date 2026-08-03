@@ -8,6 +8,7 @@
 6. Gere PDF e Excel. Ambos usam o mesmo snapshot e o mesmo `ReportModel`.
 
 ## Atualização de NCM × ClassTrib
+
 - Importe o novo XLSX pelo módulo administrativo.
 - A versão fica em `importing`, depois `draft` ou `validated`.
 - Corrija erros diretamente no formulário ou reimporte.
@@ -15,8 +16,53 @@
 - Publique somente quando não houver erros impeditivos.
 - Auditorias antigas permanecem ligadas à versão anterior.
 
-## Reprocessamento
-Use reprocessamento quando desejar comparar uma auditoria com nova versão do catálogo. A operação cria outro lote; nunca sobrescreve o resultado original.
+## Processamento, erros e tentativas
 
-## Tratamento de falhas
-Consulte `docker compose logs -f auditor-fiscal-worker auditor-fiscal-engine auditor-fiscal-api`. Lotes com falha preservam o erro e os arquivos originais. Após corrigir infraestrutura ou fonte, reexecute o lote.
+O detalhe da auditoria possui a guia **Processamento e erros**. Ela registra, em
+ordem cronológica, envio à fila, início de cada tentativa, chamada ao motor
+fiscal, resposta HTTP, persistência, repetição automática e conclusão ou falha.
+O erro do lote inclui código, incidente, tentativa, horário e detalhe técnico
+sanitizado. Senhas, tokens, chaves, credenciais em URLs e cabeçalhos de
+autorização são removidos antes da persistência.
+
+O worker faz até três tentativas. Durante a repetição o lote usa `retrying`; ao
+esgotar as tentativas, usa `failed`. O status `superseded` identifica uma fila
+antiga substituída manualmente. Os eventos também continuam no log JSON do
+Docker, permitindo correlação pelo `incident_id` e `request_id`.
+
+Administradores podem abrir **Logs da aplicação** para pesquisar todos os
+componentes, níveis, eventos, auditorias e incidentes. Esses registros são
+mantidos por `APPLICATION_LOG_RETENTION_DAYS` (90 dias por padrão) e removidos
+pelo `model:prune` diário. O log global é restrito à permissão `logs.view`; o
+histórico de uma auditoria respeita o acesso à empresa.
+
+## Reprocessamento
+
+Use **Reprocessar auditoria** no detalhe do lote. A operação valida a presença
+dos arquivos no armazenamento, cria outro lote ligado ao original, preserva os
+resultados anteriores e impede reprocessamentos concorrentes. São elegíveis:
+
+- lotes `failed` ou `completed`;
+- lotes `queued` sem atualização além de `ANALYSIS_STALE_QUEUE_MINUTES`.
+
+Lotes `processing` ou `retrying` não podem ser duplicados enquanto houver uma
+tentativa ativa. O endpoint possui limite de cinco solicitações por minuto.
+
+## Diagnóstico de infraestrutura
+
+O fluxo de inicialização valida migrations, filas e escrita/leitura no MinIO. O
+healthcheck `/health/ready` do motor fiscal valida PostgreSQL e armazenamento de
+objetos. Se um serviço essencial estiver indisponível, o worker não inicia.
+
+Para diagnóstico fora da interface:
+
+```bash
+docker compose ps
+docker compose logs --since=30m auditor-fiscal-worker auditor-fiscal-engine auditor-fiscal-api
+docker compose run --rm --no-deps auditor-fiscal-api php artisan storage:verify
+docker compose exec auditor-fiscal-rabbitmq rabbitmqctl list_queues name messages consumers
+```
+
+Requisições `GET` do navegador e chamadas de healthcheck apenas confirmam que a
+API respondeu; elas não explicam uma falha do job. Para isso, consulte a guia do
+lote, o log da aplicação ou os serviços `worker` e `engine`.
