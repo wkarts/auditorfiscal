@@ -275,6 +275,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}
           build-args: |
             BASE_IMAGE=ghcr.io/${{ needs.contract.outputs.namespace }}/auditorfiscal-api-base:php8.4-v1
+            APP_VERSION=${{ needs.contract.outputs.version }}
           provenance: mode=max
           sbom: true
 

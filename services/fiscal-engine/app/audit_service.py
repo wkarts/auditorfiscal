@@ -7,6 +7,7 @@ from decimal import Decimal
 import json
 import re
 from .catalog import CatalogSnapshot
+from .cancellation import AuditCancellationGuard,AuditCancelled
 from .cross_rules import apply_cross_document_rules
 from .reports.pdf_report import build_pdf
 from .reports.excel_report import build_excel
@@ -19,9 +20,11 @@ class AuditService:
     def __init__(self):self.storage=ObjectStorage()
     def run(self,payload:dict):
         catalog=CatalogSnapshot(payload['catalog_version_id']);documents=[];findings=[];events=[];document_identities={};identity_occurrences={};duplicate_occurrences=0
-        with TemporaryDirectory(prefix='auditor-') as temp:
+        with AuditCancellationGuard(payload['batch_id']) as cancellation,TemporaryDirectory(prefix='auditor-') as temp:
+            cancellation.checkpoint('inicio')
             root=Path(temp);xml_candidates=[];pdf_candidates=[]
             for source in payload['source_files']:
+                cancellation.checkpoint('download-fonte')
                 safe_source_name=f"{source['id']}-{Path(source['original_name']).name}"
                 local=self.storage.download(source['storage_path'],root/'sources'/safe_source_name)
                 if local.suffix.lower()=='.zip':
@@ -30,6 +33,7 @@ class AuditService:
                 elif local.suffix.lower()=='.xml':xml_candidates.append((local,source['id']))
                 elif local.suffix.lower()=='.pdf':pdf_candidates.append((local,source['id']))
             for xml_path,source_id in xml_candidates:
+                cancellation.checkpoint('leitura-xml')
                 data=xml_path.read_bytes();tmp_ref=sha256(data).hexdigest()
                 try:
                     event=parse_event(data)
@@ -45,12 +49,14 @@ class AuditService:
                     if identity:document_identities[identity]=doc;identity_occurrences[identity]=1
                     storage_path=f"batches/{payload['batch_id']}/xml/{doc.get('access_key') or tmp_ref}.xml";doc['xml_storage_path']=storage_path;self.storage.put_bytes(data,storage_path)
                     documents.append(doc);findings.extend(doc_findings)
+                except AuditCancelled:raise
                 except Exception as exc:
                     findings.append(finding('XML-PARSE-001','critical','document','XML inválido ou não suportado',str(exc),tmp_ref,evidence={'file':xml_path.name,'sha256':tmp_ref},impact='Documento não auditado.',action='Corrigir ou substituir o XML de origem.'))
             documents_by_key={document.get('access_key'):document for document in documents if document.get('access_key')}
             attached_danfe=set();documents_by_source={}
             for document in documents:documents_by_source.setdefault(document.get('source_file_id'),[]).append(document)
             for pdf_path,source_id in pdf_candidates:
+                cancellation.checkpoint('vinculo-danfe')
                 match=re.search(r'(?<!\d)(\d{44})(?!\d)',pdf_path.name)
                 access_key=match.group(1) if match and match.group(1) in documents_by_key else None
                 source_documents=documents_by_source.get(source_id,[])
@@ -64,6 +70,7 @@ class AuditService:
                 documents_by_key[access_key]['danfe_storage_path']=danfe_path;documents_by_key[access_key]['normalized']['danfe_source']='imported';attached_danfe.add(access_key)
             generated_dir=root/'danfe-generated';generated_dir.mkdir()
             for document in documents:
+                cancellation.checkpoint('geracao-danfe')
                 if document.get('danfe_storage_path'):continue
                 reference=document.get('access_key') or document.get('document_ref')
                 generated=generated_dir/f'{reference}.pdf';build_danfe(generated,document)
@@ -73,15 +80,19 @@ class AuditService:
             event_map={e['access_key']:e for e in events if e.get('event_type')=='110111' and e.get('status_code') in {'135','136','155'}}
             for d in documents:
                 if d.get('access_key') in event_map:d['status']='cancelled';d['normalized']['cancellation_event']=event_map[d['access_key']]
+            cancellation.checkpoint('regras-cruzadas')
             findings.extend(apply_cross_document_rules([d for d in documents if d['status']!='cancelled']))
             summary=self._summary(documents,findings)
             summary['received_document_count']=len(documents)+duplicate_occurrences;summary['duplicate_occurrence_count']=duplicate_occurrences
             period={'start':payload.get('period_start'),'end':payload.get('period_end')};catalog_meta={'id':payload['catalog_version_id'],'version':payload.get('catalog_version'),'sha256':payload.get('catalog_sha256')}
             reports_dir=root/'reports';reports_dir.mkdir();pdf=reports_dir/'relatorio.pdf';xlsx=reports_dir/'relatorio.xlsx'
+            cancellation.checkpoint('relatorio-pdf')
             build_pdf(pdf,payload['company'],period,summary,documents,findings,catalog_meta,settings.report_template_version)
+            cancellation.checkpoint('relatorio-xlsx')
             build_excel(xlsx,payload['company'],period,summary,documents,findings,catalog_meta,getattr(catalog,'issues',[]))
             reports=[]
             for typ,file,mime in [('pdf',pdf,'application/pdf'),('xlsx',xlsx,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')]:
+                cancellation.checkpoint('publicacao-relatorio')
                 key=f"batches/{payload['batch_id']}/reports/auditoria.{typ}";meta=self.storage.upload(file,key,mime);reports.append({'type':typ,'template_version':settings.report_template_version,'storage_path':key,'size':meta['size'],'sha256':sha256(file.read_bytes()).hexdigest(),'metadata':{'catalog_version':payload.get('catalog_version')}})
         return {'documents':documents,'findings':findings,'summary':summary,'reports':reports,'events':events}
     def _safe_extract(self,archive:Path,dest:Path):

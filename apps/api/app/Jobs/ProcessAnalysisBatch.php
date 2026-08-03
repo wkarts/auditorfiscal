@@ -47,7 +47,12 @@ class ProcessAnalysisBatch implements ShouldQueue
     public function handle(AnalysisResultDeduplicator $deduplicator): void
     {
         $batch = AnalysisBatch::with('company', 'catalogVersion', 'sourceFiles')->findOrFail($this->batchId);
-        if (in_array($batch->status, ['completed', 'failed', 'superseded'], true)) {
+        if ($batch->cancellationRequested()) {
+            $this->finalizeCancellation($batch, 'Cancelamento aplicado antes do início desta tentativa.');
+
+            return;
+        }
+        if (in_array($batch->status, ['completed', 'failed', 'cancelled', 'superseded'], true)) {
             ApplicationLogger::record('notice', 'audit-worker', 'terminal_job_skipped', 'Job duplicado ignorado porque o lote já está em estado terminal.', [
                 'status' => $batch->status,
             ], $batch);
@@ -78,12 +83,12 @@ class ProcessAnalysisBatch implements ShouldQueue
                 'timeout_seconds' => 7200,
             ], $batch, attempt: $attempt);
             $response = Http::timeout(7200)
-                ->retry(2, 1000)
+                ->retry(2, 1000, throw: false)
                 ->withToken(config('services.fiscal_engine.token'))
                 ->post(config('services.fiscal_engine.url').'/v1/audits/run', $payload);
             $durationMs = (int) round((microtime(true) - $requestStartedAt) * 1000);
             ApplicationLogger::record(
-                $response->successful() ? 'info' : 'error',
+                $response->successful() || $this->isEngineCancellation($response->status(), $response->json()) ? 'info' : 'error',
                 'fiscal-engine',
                 'response_received',
                 'Resposta recebida do motor fiscal.',
@@ -91,10 +96,20 @@ class ProcessAnalysisBatch implements ShouldQueue
                 $batch,
                 attempt: $attempt,
             );
+            if ($this->isEngineCancellation($response->status(), $response->json())) {
+                $this->finalizeCancellation($batch, 'O motor fiscal confirmou o encerramento no ponto seguro.');
+
+                return;
+            }
             $response->throw();
             $result = $response->json();
             if (! is_array($result) || ! isset($result['documents'], $result['findings'])) {
                 throw new RuntimeException('Resposta inválida do motor fiscal: documents/findings ausentes.');
+            }
+            if ($this->cancellationWasRequested($batch)) {
+                $this->finalizeCancellation($batch, 'Cancelamento aplicado antes da persistência dos resultados.');
+
+                return;
             }
 
             $engineDocumentCount = count($result['documents']);
@@ -109,7 +124,14 @@ class ProcessAnalysisBatch implements ShouldQueue
                 'finding_count' => count($result['findings']),
                 'report_count' => count($result['reports'] ?? []),
             ], $batch, attempt: $attempt);
-            $this->persistResults($batch, $result);
+            if (! $this->persistResults($batch, $result)) {
+                $cancelled = AnalysisBatch::find($batch->id);
+                if ($cancelled?->status === 'cancelled') {
+                    $this->recordCancellation($cancelled, 'Cancelamento aplicado durante a proteção transacional dos resultados.');
+                }
+
+                return;
+            }
             $batch->refresh();
             if ($duplicateCount > 0) {
                 ApplicationLogger::record('warning', 'audit-worker', 'duplicate_documents_consolidated', 'Documentos repetidos foram consolidados sem interromper a auditoria.', [
@@ -124,6 +146,11 @@ class ProcessAnalysisBatch implements ShouldQueue
                 'finding_count' => $batch->finding_count,
             ], $batch, attempt: $attempt);
         } catch (Throwable $exception) {
+            if ($this->cancellationWasRequested($batch)) {
+                $this->finalizeCancellation($batch, 'Processamento encerrado após solicitação de cancelamento.');
+
+                return;
+            }
             $failure = AnalysisFailure::from($exception, $attempt);
             $willRetry = $attempt < $this->tries && AnalysisFailure::isRetryable($exception);
             $batch->update([
@@ -148,8 +175,13 @@ class ProcessAnalysisBatch implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        $batch = AnalysisBatch::find($this->batchId);
-        if (! $batch || in_array($batch->status, ['completed', 'superseded'], true)) {
+        $batch = AnalysisBatch::withTrashed()->find($this->batchId);
+        if (! $batch || $batch->trashed() || in_array($batch->status, ['completed', 'cancelled', 'superseded'], true)) {
+            return;
+        }
+        if ($batch->cancellationRequested()) {
+            $this->finalizeCancellation($batch, 'Cancelamento aplicado no encerramento definitivo do job.');
+
             return;
         }
         $failure = $batch->error ?: AnalysisFailure::from($exception ?? new RuntimeException('Falha definitiva sem exceção disponível.'), $batch->attempt_count);
@@ -174,12 +206,24 @@ class ProcessAnalysisBatch implements ShouldQueue
         ];
     }
 
-    private function persistResults(AnalysisBatch $batch, array $result): void
+    private function persistResults(AnalysisBatch $batch, array $result): bool
     {
-        DB::transaction(function () use ($batch, $result): void {
-            $lockedBatch = AnalysisBatch::query()->lockForUpdate()->findOrFail($batch->id);
+        return DB::transaction(function () use ($batch, $result): bool {
+            $lockedBatch = AnalysisBatch::withTrashed()->lockForUpdate()->findOrFail($batch->id);
             if ($lockedBatch->status === 'completed') {
-                return;
+                return true;
+            }
+            if ($lockedBatch->trashed() || $lockedBatch->cancellationRequested()) {
+                if (! $lockedBatch->trashed()) {
+                    $lockedBatch->update([
+                        'status' => 'cancelled',
+                        'cancelled_at' => $lockedBatch->cancelled_at ?? now(),
+                        'finished_at' => now(),
+                        'error' => null,
+                    ]);
+                }
+
+                return false;
             }
 
             $documentMap = [];
@@ -243,6 +287,58 @@ class ProcessAnalysisBatch implements ShouldQueue
                 'error' => null,
                 'finished_at' => now(),
             ]);
+
+            return true;
         }, 3);
+    }
+
+    private function cancellationWasRequested(AnalysisBatch $batch): bool
+    {
+        $current = AnalysisBatch::withTrashed()->find($batch->id);
+
+        return ! $current || $current->trashed() || $current->cancellationRequested();
+    }
+
+    private function isEngineCancellation(int $status, mixed $body): bool
+    {
+        return $status === 409 && is_array($body) && ($body['error_code'] ?? null) === 'AUDIT_CANCELLED';
+    }
+
+    private function finalizeCancellation(AnalysisBatch $batch, string $message): void
+    {
+        $cancelled = DB::transaction(function () use ($batch): ?AnalysisBatch {
+            $locked = AnalysisBatch::withTrashed()->lockForUpdate()->find($batch->id);
+            if (! $locked || $locked->trashed() || in_array($locked->status, ['completed', 'failed', 'superseded'], true)) {
+                return null;
+            }
+            $locked->update([
+                'status' => 'cancelled',
+                'cancel_requested_at' => $locked->cancel_requested_at ?? now(),
+                'cancelled_at' => $locked->cancelled_at ?? now(),
+                'finished_at' => now(),
+                'error' => null,
+            ]);
+
+            return $locked;
+        }, 3);
+
+        if ($cancelled) {
+            $this->recordCancellation($cancelled, $message);
+        }
+    }
+
+    private function recordCancellation(AnalysisBatch $batch, string $message): void
+    {
+        $batch = AnalysisBatch::find($batch->id);
+        if (! $batch) {
+            return;
+        }
+        if ($batch->applicationLogs()->where('event', 'processing_cancelled')->exists()) {
+            return;
+        }
+        ApplicationLogger::record('notice', 'audit-worker', 'processing_cancelled', $message, [
+            'cancel_requested_at' => optional($batch->cancel_requested_at)->toIso8601String(),
+            'cancelled_at' => optional($batch->cancelled_at)->toIso8601String(),
+        ], $batch, attempt: max(1, $this->attempts()));
     }
 }

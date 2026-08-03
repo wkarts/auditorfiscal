@@ -4,10 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class AnalysisBatch extends Model
 {
-    use HasUuids;
+    use HasUuids, SoftDeletes;
 
     protected $guarded = [];
 
@@ -21,12 +22,31 @@ class AnalysisBatch extends Model
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
             'last_attempt_at' => 'datetime',
+            'cancel_requested_at' => 'datetime',
+            'cancelled_at' => 'datetime',
+            'deleted_at' => 'datetime',
         ];
+    }
+
+    public function canBeCancelled(): bool
+    {
+        return in_array($this->status, ['uploading', 'queued', 'processing', 'retrying', 'cancelling'], true);
+    }
+
+    public function cancellationRequested(): bool
+    {
+        return $this->cancel_requested_at !== null
+            || in_array($this->status, ['cancelling', 'cancelled'], true);
+    }
+
+    public function canBeDeleted(): bool
+    {
+        return in_array($this->status, ['completed', 'failed', 'cancelled', 'superseded'], true);
     }
 
     public function canBeReprocessed(): bool
     {
-        if (in_array($this->status, ['failed', 'completed'], true)) {
+        if (in_array($this->status, ['failed', 'completed', 'cancelled'], true)) {
             return true;
         }
 
@@ -42,7 +62,7 @@ class AnalysisBatch extends Model
 
         return match ($this->status) {
             'uploading', 'queued' => 'A auditoria ainda está na fila e não atingiu o tempo limite para reprocessamento.',
-            'processing', 'retrying' => 'A auditoria ainda está sendo processada ou repetida automaticamente.',
+            'processing', 'retrying', 'cancelling' => 'A auditoria ainda está sendo processada ou cancelada.',
             'superseded' => 'Esta auditoria já foi substituída por um reprocessamento.',
             default => 'O status atual não permite reprocessamento.',
         };
