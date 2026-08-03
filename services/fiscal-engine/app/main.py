@@ -20,7 +20,7 @@ from .storage import ObjectStorage
 
 
 logger=logging.getLogger('auditor-fiscal-engine')
-app=FastAPI(title='Auditor Fiscal Engine',version='1.1.11',docs_url='/docs')
+app=FastAPI(title='Auditor Fiscal Engine',version='1.1.12',docs_url='/docs')
 app.mount('/metrics',make_asgi_app())
 
 
