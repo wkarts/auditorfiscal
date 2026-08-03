@@ -8,6 +8,12 @@ Também oferece segregação por tenant e empresa, permissões explícitas de us
 consulta assistida de CNPJ, visualização do XML original e do DANFE, análise crítica
 por camadas e exportação de logs globais ou vinculados a cada auditoria.
 
+A conciliação econômica atende qualquer segmento comercial: varejo alimentar,
+vestuário, equipamentos, eletrônicos, dispositivos móveis, veículos e outros.
+O motor prioriza série/IMEI/chassi, lote e GTIN; NCM + descrição + unidade é
+usado somente como correspondência indicativa. Regras automotivas são opcionais
+e executadas apenas quando o próprio documento identifica um veículo ou bem usado.
+
 ## Arquitetura
 
 - **Laravel 13 / PHP 8.4**: API, autenticação, RBAC, empresas, catálogos, lotes e relatórios.

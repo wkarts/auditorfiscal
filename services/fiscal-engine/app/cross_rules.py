@@ -1,40 +1,178 @@
+from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
-from collections import defaultdict
+
+from .product_reconciliation import build_product_reconciliation, item_identity
 from .xml_parser import finding
 
-def apply_cross_document_rules(documents:list[dict])->list[dict]:
-    findings=[];by_chassis=defaultdict(list)
-    for d in documents:
-        for i in d['items']:
-            if i.get('chassis'):by_chassis[i['chassis']].append((d,i))
-    for chassis,rows in by_chassis.items():
-        outputs=[x for x in rows if x[0]['direction']=='saida'];inputs=[x for x in rows if x[0]['direction']=='entrada']
-        outputs.sort(key=lambda x:x[0].get('issued_at') or '')
-        for a,b in zip(outputs,outputs[1:]):
-            da,db=a[0],b[0]
-            try:minutes=abs((datetime.fromisoformat(db['issued_at'])-datetime.fromisoformat(da['issued_at'])).total_seconds())/60
-            except:minutes=999999
-            same_party=da.get('recipient_tax_id')==db.get('recipient_tax_id')
-            values_close=abs(Decimal(da['total_value'])-Decimal(db['total_value']))<=Decimal('1000')
-            if same_party and values_close and minutes<=60:
-                ev={'chassis':chassis,'documents':[da['number'],db['number']],'minutes':round(minutes,2),'values':[da['total_value'],db['total_value']],'recipient_tax_id':da.get('recipient_tax_id')}
-                findings.append(finding('DUPLICATE-ECONOMIC-001','critical','duplicate','Possível duplicidade econômica',f'NF {da["number"]} e NF {db["number"]} apresentam mesmo chassi, contraparte e emissão próxima.',da['document_ref'],None,ev,'Pode superestimar faturamento, bases e débitos.','Consultar eventos oficiais de cancelamento na SEFAZ.',Decimal('0.90')))
-        for out_doc,out_item in outputs:
-            prior=[x for x in inputs if (x[0].get('issued_at') or '') <= (out_doc.get('issued_at') or '')]
-            if not prior:
-                findings.append(finding('RECONCILIATION-MISSING-INPUT-001','medium','data_quality','Entrada anterior não localizada','Não foi localizado, na amostra, documento de entrada anterior para o chassi vendido.',out_doc['document_ref'],out_item['item_number'],{'layer':'economic','chassis':chassis,'output_nf':out_doc['number'],'sample_limitation':True},'Impede conciliar custo, margem e eventual crédito presumido.','Confirmar se a entrada está fora do período/amostra e importar o XML correspondente.'))
-                continue
-            in_doc,in_item=sorted(prior,key=lambda x:x[0].get('issued_at') or '')[-1]
-            cost=Decimal(in_item['product_value']);sale=Decimal(out_item['product_value']);margin=sale-cost;pis_cof=Decimal(out_item.get('pis_cofins') or '0')
-            if margin < 0:
-                findings.append(finding('NEGATIVE-MARGIN-001','high','economic','Venda abaixo do custo documental','A saída apresenta valor inferior ao custo da última entrada conciliada por chassi.',out_doc['document_ref'],out_item['item_number'],{'layer':'economic','chassis':chassis,'input_nf':in_doc['number'],'output_nf':out_doc['number'],'cost':str(cost),'sale':str(sale),'margin':str(margin)},'Pode indicar prejuízo, custo incompleto ou conciliação documental incorreta.','Validar o custo, as despesas agregadas, devoluções e a correspondência do chassi.'))
-            elif margin == 0:
-                findings.append(finding('ZERO-MARGIN-001','medium','economic','Margem documental zerada','Entrada e saída conciliadas apresentam o mesmo valor de produto.',out_doc['document_ref'],out_item['item_number'],{'layer':'economic','chassis':chassis,'input_nf':in_doc['number'],'output_nf':out_doc['number'],'cost':str(cost),'sale':str(sale)},'Pode sinalizar operação sem margem ou custo/receita incompletos na amostra.','Revisar descontos, despesas, bonificações e composição do preço.'))
-            # Prefer the base explicitly informed in the XML. Infer by the combined 3.65% rate
-            # only for older documents/fixtures that do not expose vBC in the normalized item.
-            explicit_base=Decimal(out_item.get('pis_cofins_base') or '0')
-            pis_cof_base=explicit_base if explicit_base else ((pis_cof/Decimal('0.0365')).quantize(Decimal('0.01')) if pis_cof else Decimal('0'))
-            if pis_cof and abs(pis_cof_base-margin)>Decimal('1.00'):
-                findings.append(finding('USED-VEHICLE-MARGIN-001','high','margin','Margem PIS/COFINS divergente','A base inferida de PIS/COFINS não coincide com a margem documental entrada × saída.',out_doc['document_ref'],out_item['item_number'],{'chassis':chassis,'input_nf':in_doc['number'],'output_nf':out_doc['number'],'cost':str(cost),'sale':str(sale),'document_margin':str(margin),'inferred_pis_cofins_base':str(pis_cof_base),'difference':str(pis_cof_base-margin)},'Altera PIS/COFINS e, por consequência, a base IBS/CBS.','Reprocessar o custo por chassi e verificar ajustes documentais.'))
+
+def apply_cross_document_rules(documents: list[dict]) -> list[dict]:
+    findings = []
+    entries_by_key = _entries_by_identity(documents)
+    findings.extend(_duplicate_findings(entries_by_key))
+
+    for row in build_product_reconciliation(documents):
+        if row.get("used_movable_good") and row.get("chassis"):
+            vehicle_finding = _used_vehicle_margin_finding(row, entries_by_key.get(row["key"], []))
+            if vehicle_finding:
+                findings.append(vehicle_finding)
+
+        if row["status"] == "missing_input" and row["confidence"] == "exact":
+            findings.append(finding(
+                "RECONCILIATION-MISSING-INPUT-001",
+                "medium",
+                "data_quality",
+                "Entrada anterior não localizada",
+                f"Não foi localizado, na amostra, documento de entrada anterior para {row['identifier']}.",
+                row["output_document_ref"],
+                row["output_item_number"],
+                _economic_evidence(row, sample_limitation=True),
+                "Impede conciliar custo e margem do item individualizado.",
+                "Confirmar estoque inicial, período da amostra e importar o XML de entrada quando disponível.",
+            ))
+            continue
+
+        if row["status"] not in {"negative_margin", "zero_margin"}:
+            continue
+
+        negative = row["status"] == "negative_margin"
+        findings.append(finding(
+            "NEGATIVE-MARGIN-001" if negative else "ZERO-MARGIN-001",
+            "high" if negative else "medium",
+            "economic",
+            "Venda abaixo do custo documental" if negative else "Margem documental zerada",
+            (
+                "As saídas apresentam valor inferior ao custo documental conciliado para o produto."
+                if negative else
+                "As entradas e saídas conciliadas apresentam margem documental estimada igual a zero."
+            ),
+            row["output_document_ref"],
+            row["output_item_number"],
+            _economic_evidence(row),
+            (
+                "Pode indicar prejuízo, custo incompleto ou correspondência de produto incorreta."
+                if negative else
+                "Pode sinalizar operação sem margem ou custo/receita incompletos na amostra."
+            ),
+            "Validar identidade do produto, estoque inicial, devoluções, descontos, despesas e composição do custo.",
+        ))
+
     return findings
+
+
+def _entries_by_identity(documents: list[dict]):
+    grouped = defaultdict(list)
+    for document in documents:
+        if document.get("status") == "cancelled":
+            continue
+        for item in document.get("items", []):
+            identity = item_identity(item)
+            if identity:
+                grouped[identity["key"]].append((document, item, identity))
+    return grouped
+
+
+def _duplicate_findings(entries_by_key) -> list[dict]:
+    findings = []
+    for rows in entries_by_key.values():
+        identity = rows[0][2]
+        if identity.get("confidence") != "exact":
+            continue
+        outputs = sorted(
+            (entry for entry in rows if entry[0].get("direction") == "saida"),
+            key=lambda entry: entry[0].get("issued_at") or "",
+        )
+        for first, second in zip(outputs, outputs[1:]):
+            first_doc, first_item, _ = first
+            second_doc, second_item, _ = second
+            try:
+                minutes = abs((
+                    datetime.fromisoformat(second_doc["issued_at"])
+                    - datetime.fromisoformat(first_doc["issued_at"])
+                ).total_seconds()) / 60
+            except (TypeError, ValueError):
+                minutes = Decimal("Infinity")
+            same_party = first_doc.get("recipient_tax_id") == second_doc.get("recipient_tax_id")
+            values_equal = abs(
+                Decimal(str(first_item.get("product_value") or "0"))
+                - Decimal(str(second_item.get("product_value") or "0"))
+            ) <= Decimal("0.01")
+            if same_party and values_equal and minutes <= 60:
+                evidence = {
+                    "layer": "economic",
+                    "identity": identity,
+                    "documents": [first_doc.get("number"), second_doc.get("number")],
+                    "minutes": round(float(minutes), 2),
+                    "item_values": [first_item.get("product_value"), second_item.get("product_value")],
+                    "recipient_tax_id": first_doc.get("recipient_tax_id"),
+                }
+                findings.append(finding(
+                    "DUPLICATE-ECONOMIC-001",
+                    "critical",
+                    "duplicate",
+                    "Possível duplicidade econômica",
+                    f"As NF {first_doc.get('number')} e {second_doc.get('number')} repetem {identity['label']}, contraparte, valor do item e emissão próxima.",
+                    first_doc["document_ref"],
+                    first_item.get("item_number"),
+                    evidence,
+                    "Pode superestimar faturamento, estoque, bases e débitos.",
+                    "Consultar os eventos oficiais e confirmar se as duas operações são distintas.",
+                    Decimal("0.90"),
+                ))
+    return findings
+
+
+def _economic_evidence(row: dict, sample_limitation: bool = False) -> dict:
+    return {
+        "layer": "economic",
+        "identity": {
+            "key": row["key"],
+            "label": row["identifier"],
+            "type": row["identity_type"],
+            "confidence": row["confidence"],
+            "basis": row.get("basis"),
+        },
+        "ncm": row.get("ncm"),
+        "input_quantity": row["input_quantity"],
+        "output_quantity": row["output_quantity"],
+        "input_value": row["input_value"],
+        "output_value": row["output_value"],
+        "estimated_unit_cost": row["estimated_unit_cost"],
+        "estimated_cost": row["estimated_cost"],
+        "estimated_margin": row["margin"],
+        "sample_limitation": sample_limitation or row["confidence"] != "exact",
+    }
+
+
+def _used_vehicle_margin_finding(row: dict, entries: list[tuple[dict, dict, dict]]):
+    outputs = [entry for entry in entries if entry[0].get("direction") == "saida"]
+    if not outputs or row.get("margin") is None:
+        return None
+    output_doc, output_item, _ = max(outputs, key=lambda entry: entry[0].get("issued_at") or "")
+    pis_cofins = Decimal(str(output_item.get("pis_cofins") or "0"))
+    explicit_base = Decimal(str(output_item.get("pis_cofins_base") or "0"))
+    pis_cofins_base = explicit_base if explicit_base else (
+        (pis_cofins / Decimal("0.0365")).quantize(Decimal("0.01")) if pis_cofins else Decimal("0")
+    )
+    margin = Decimal(str(row["margin"]))
+    if not pis_cofins or abs(pis_cofins_base - margin) <= Decimal("1.00"):
+        return None
+    return finding(
+        "USED-VEHICLE-MARGIN-001",
+        "high",
+        "margin",
+        "Margem PIS/COFINS divergente em veículo usado",
+        "A base de PIS/COFINS não coincide com a margem documental do veículo usado individualizado.",
+        output_doc["document_ref"],
+        output_item.get("item_number"),
+        {
+            "chassis": row["chassis"],
+            "input_nf": row.get("input_document"),
+            "output_nf": row.get("output_document"),
+            "document_margin": str(margin),
+            "pis_cofins_base": str(pis_cofins_base),
+            "difference": str(pis_cofins_base - margin),
+        },
+        "Pode alterar PIS/COFINS e, por consequência, a base IBS/CBS.",
+        "Reprocessar o custo do veículo e verificar ajustes documentais aplicáveis.",
+    )
