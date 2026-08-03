@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\CompanyAccess;
 use App\Services\TenantAccess;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -134,6 +135,21 @@ class ClientCompanyAccessTest extends TestCase
         $this->assertCount(3, CompanyAccess::ids($master));
     }
 
+    public function test_platform_master_listing_includes_master_and_account_users(): void
+    {
+        $this->seedScenario();
+        DB::table('users')->insert(['id' => 9, 'tenant_id' => null, 'name' => 'Master', 'email' => 'master@example.com', 'password' => 'hash', 'active' => true, 'all_clients' => true, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('roles')->insert(['id' => 9, 'name' => 'Administrador', 'guard_name' => 'web', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('model_has_roles')->insert(['role_id' => 9, 'model_type' => User::class, 'model_id' => 9]);
+        $master = User::query()->findOrFail(9);
+        $request = Request::create('/api/v1/users', 'GET');
+        $request->setUserResolver(fn () => $master);
+
+        $page = (new UserController)->index($request);
+
+        $this->assertEqualsCanonicalizing([1, 9], collect($page->items())->pluck('id')->all());
+    }
+
     public function test_account_and_audited_client_cnpj_can_be_corrected(): void
     {
         $this->seedScenario();
@@ -171,10 +187,17 @@ class ClientCompanyAccessTest extends TestCase
             'client_ids' => ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
         ]);
         $request->setUserResolver(fn () => $master);
+        $emailValidationBindings = [];
+        DB::listen(function (QueryExecuted $query) use (&$emailValidationBindings): void {
+            if (str_contains($query->sql, 'users') && str_contains($query->sql, 'email') && str_contains($query->sql, 'count')) {
+                $emailValidationBindings = $query->bindings;
+            }
+        });
 
         (new UserController)->store($request);
 
         $created = User::query()->where('email', 'codesplan@example.com')->firstOrFail();
+        $this->assertNotContains('', $emailValidationBindings, true);
         $this->assertSame('11111111-1111-4111-8111-111111111111', $created->tenant_id);
         $this->assertFalse($created->all_clients);
         $this->assertDatabaseHas('company_user', ['company_id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'user_id' => $created->id]);
