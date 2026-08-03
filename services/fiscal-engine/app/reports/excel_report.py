@@ -1,6 +1,7 @@
 from pathlib import Path
 from decimal import Decimal
 import xlsxwriter
+from ..product_reconciliation import build_product_reconciliation
 MONEY='#,##0.00';PCT='0.0000%'
 def build_excel(path:Path,company:dict,period:dict,summary:dict,documents:list[dict],findings:list[dict],catalog:dict,parameter_issues:list[dict]|None=None):
     wb=xlsxwriter.Workbook(str(path));wb.set_properties({'title':'Auditoria Fiscal IBS/CBS','company':company.get('legal_name',''),'comments':'Gerado pelo Auditor Fiscal'})
@@ -21,10 +22,11 @@ def _write_table(ws,headers,rows,widths,fmt,name):
 def _notes_sheet(wb,fmt,docs):
     ws=wb.add_worksheet('Notas - Sintético');headers=['NF','Chave','Emissão','Direção','Emitente','Destinatário','Valor NF','Base IBS/CBS','IBS','CBS','Itens','Status'];rows=[[d.get('number'),d.get('access_key'),d.get('issued_at'),d.get('direction'),d.get('issuer_tax_id'),d.get('recipient_tax_id'),float(d.get('total_value',0)),float(d.get('ibs_cbs_base',0)),float(d.get('ibs_value',0)),float(d.get('cbs_value',0)),d.get('item_count'),d.get('status')] for d in docs];_write_table(ws,headers,rows,[10,46,22,10,16,16,15,15,12,12,8,14],fmt,'NotasSintetico')
 def _items_sheet(wb,fmt,docs):
-    ws=wb.add_worksheet('Itens - Analítico');components=['vProd','vServ','vFrete','vSeg','vOutro','vII','vDesc','vPIS','vCOFINS','vICMS','vICMSUFDest','vFCP','vFCPUFDest','vICMSMono','vISSQN','vIS'];headers=['NF','Item','Produto','NCM','EX','CFOP','CST','cClassTrib','CST esperada','cClass esperada']+components+['Base XML','Base recalculada','Diferença','IBS XML','IBS recalc.','CBS XML','CBS recalc.','Situação'];rows=[]
+    ws=wb.add_worksheet('Itens - Analítico');components=['vProd','vServ','vFrete','vSeg','vOutro','vII','vDesc','vPIS','vCOFINS','vICMS','vICMSUFDest','vFCP','vFCPUFDest','vICMSMono','vISSQN','vIS'];headers=['NF','Item','Código','Produto','GTIN','NCM','EX','CFOP','Quantidade','Unidade','CST','cClassTrib','CST esperada','cClass esperada']+components+['Base XML','Base recalculada','Diferença','IBS XML','IBS recalc.','CBS XML','CBS recalc.','Situação'];rows=[]
     for d in docs:
-        for i in d.get('items',[]):rows.append([d.get('number'),i.get('item_number'),i.get('description'),i.get('ncm'),i.get('ex_code'),i.get('cfop'),i.get('actual_cst'),i.get('actual_cclass_trib'),i.get('expected_cst'),i.get('expected_cclass_trib')]+[float(i.get('tax_components',{}).get(k,0)) for k in components]+[float(i.get('ibs_cbs_base_xml',0)),float(i.get('ibs_cbs_base_recalculated',0)),float(i.get('base_difference',0)),float(i.get('ibs_xml',0)),float(i.get('ibs_recalculated',0)),float(i.get('cbs_xml',0)),float(i.get('cbs_recalculated',0)),i.get('classification_status')])
-    _write_table(ws,headers,rows,[10,7,38,11,7,8,8,12,10,13]+[12]*len(components)+[14]*7+[24],fmt,'ItensAnalitico')
+        for i in d.get('items',[]):
+            details=i.get('details',{});rows.append([d.get('number'),i.get('item_number'),i.get('product_code'),i.get('description'),details.get('ean_taxable') or details.get('ean'),i.get('ncm'),i.get('ex_code'),i.get('cfop'),details.get('quantity'),details.get('unit'),i.get('actual_cst'),i.get('actual_cclass_trib'),i.get('expected_cst'),i.get('expected_cclass_trib')]+[float(i.get('tax_components',{}).get(k,0)) for k in components]+[float(i.get('ibs_cbs_base_xml',0)),float(i.get('ibs_cbs_base_recalculated',0)),float(i.get('base_difference',0)),float(i.get('ibs_xml',0)),float(i.get('ibs_recalculated',0)),float(i.get('cbs_xml',0)),float(i.get('cbs_recalculated',0)),i.get('classification_status')])
+    _write_table(ws,headers,rows,[10,7,16,38,16,11,7,8,12,9,8,12,10,13]+[12]*len(components)+[14]*7+[24],fmt,'ItensAnalitico')
 def _tax_sheet(wb,fmt,docs):
     ws=wb.add_worksheet('Tributos');rows=[]
     for d in docs:
@@ -51,17 +53,10 @@ def _duplicates_events_sheet(wb,fmt,docs,findings):
         if f.get('category')=='duplicate':rows.append(['possível duplicidade',next((d.get('number') for d in docs if d.get('document_ref')==f.get('document_ref')),'Lote'),'',f.get('rule_code'),f.get('severity'),f.get('description'),str(f.get('evidence',{}))])
     _write_table(ws,['Tipo','NF','Chave','Evento/Regra','Status','Descrição','Data/Evidência'],rows,[20,12,46,24,12,60,55],fmt,'DuplicidadesEventos')
 def _reconciliation_sheet(wb,fmt,docs):
-    ws=wb.add_worksheet('Entradas x Saídas');by={}
-    for d in docs:
-        for i in d.get('items',[]):
-            if i.get('chassis'):by.setdefault(i['chassis'],[]).append((d,i))
-    rows=[]
-    for ch,arr in by.items():
-        ins=[x for x in arr if x[0].get('direction')=='entrada'];outs=[x for x in arr if x[0].get('direction')=='saida']
-        for out in outs:
-            if ins:
-                inp=sorted(ins,key=lambda x:x[0].get('issued_at') or '')[-1];cost=float(inp[1]['product_value']);sale=float(out[1]['product_value']);rows.append([ch,inp[0]['number'],out[0]['number'],cost,sale,sale-cost,float(out[1].get('pis_cofins_base',0)),float(out[1].get('pis_cofins',0))])
-    _write_table(ws,['Chassi','NF entrada','NF saída','Custo','Venda','Margem documental','Base PIS/COFINS','PIS+COFINS'],rows,[22,12,12,15,15,18,18,15],fmt,'EntradasSaidas')
+    ws=wb.add_worksheet('Entradas x Saídas');rows=[]
+    for row in build_product_reconciliation(docs):
+        rows.append([row['identifier'],row['identity_type'],row['confidence'],row.get('ncm'),row.get('unit'),float(row['input_quantity']),float(row['output_quantity']),float(row['input_value']),float(row['output_value']),float(row['estimated_cost']) if row['estimated_cost'] is not None else None,float(row['margin']) if row['margin'] is not None else None,row['status']])
+    _write_table(ws,['Produto / identificador','Tipo','Confiança','NCM','Unidade','Qtd. entrada','Qtd. saída','Valor de entrada','Valor de saída','Custo estimado','Margem estimada','Situação'],rows,[48,18,14,11,10,14,14,17,17,17,17,28],fmt,'EntradasSaidas')
 def _findings_sheet(wb,fmt,findings,docs):
     ws=wb.add_worksheet('Inconsistências');nf={d['document_ref']:d.get('number') for d in docs};rows=[[f.get('severity'),nf.get(f.get('document_ref'),'Lote'),f.get('item_number'),f.get('category'),f.get('rule_code'),f.get('title'),f.get('description'),f.get('impact'),f.get('recommended_action'),f.get('status')] for f in findings];_write_table(ws,['Severidade','NF','Item','Categoria','Regra','Título','Evidência','Impacto','Ação recomendada','Status'],rows,[12,10,8,18,24,30,55,45,55,14],fmt,'Inconsistencias');ws.conditional_format(1,0,max(len(rows),1),0,{'type':'text','criteria':'containing','value':'critical','format':fmt['critical']})
 def _ncm_sheet(wb,fmt,docs):

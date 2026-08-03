@@ -7,8 +7,10 @@ from reportlab.lib.pagesizes import A4,landscape
 from reportlab.lib.styles import getSampleStyleSheet,ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,Table,TableStyle,PageBreak,KeepTogether
+from ..product_reconciliation import build_product_reconciliation
 NAVY=colors.HexColor('#12324A');TEAL=colors.HexColor('#137D7B');LIGHT=colors.HexColor('#EAF2F7');MINT=colors.HexColor('#E3F3EE');WARN=colors.HexColor('#FFF0CC');DANGER=colors.HexColor('#FCE5E3');GRID=colors.HexColor('#B8C7D1')
 def money(v):return f'R$ {Decimal(str(v or 0)):,.2f}'.replace(',','X').replace('.',',').replace('X','.')
+def money_or_dash(v):return money(v) if v is not None else '—'
 def p(value,style):return Paragraph(str(value or '—'),style)
 def build_pdf(path:Path,company:dict,period:dict,summary:dict,documents:list[dict],findings:list[dict],catalog:dict,template_version:str):
     styles=getSampleStyleSheet();body=ParagraphStyle('body',parent=styles['BodyText'],fontName='Helvetica',fontSize=7.5,leading=9.5,textColor=colors.HexColor('#263746'));small=ParagraphStyle('small',parent=body,fontSize=6.3,leading=7.7);title=ParagraphStyle('title',parent=styles['Title'],fontName='Helvetica-Bold',fontSize=20,leading=23,textColor=colors.white,alignment=TA_LEFT);h1=ParagraphStyle('h1',parent=styles['Heading1'],fontName='Helvetica-Bold',fontSize=17,leading=20,textColor=NAVY,spaceAfter=8);center=ParagraphStyle('center',parent=body,alignment=TA_CENTER)
@@ -46,7 +48,7 @@ def build_pdf(path:Path,company:dict,period:dict,summary:dict,documents:list[dic
     for d in documents:
         for i in d.get('items',[]):nrows.append([d.get('number'),i.get('item_number'),i.get('description'),f"{i.get('ncm') or '—'} / {i.get('ex_code') or '—'}",f"{i.get('actual_cst') or '—'} / {i.get('actual_cclass_trib') or '—'}",f"{i.get('expected_cst') or '—'} / {i.get('expected_cclass_trib') or '—'}",i.get('classification_status')])
     story += [_table(nrows,[18*mm,12*mm,76*mm,28*mm,40*mm,40*mm,50*mm],body,small),PageBreak()]
-    story += [p('6. Conciliação econômica por chassi',h1),_reconciliation_table(documents,body,small),Spacer(1,4*mm),p('A conciliação utiliza apenas documentos presentes na amostra. Ausência de entrada é uma lacuna de dados, não uma conclusão de irregularidade.',body),PageBreak()]
+    story += [p('6. Conciliação econômica de produtos',h1),_reconciliation_table(documents,body,small),Spacer(1,4*mm),p('A identidade usa, em ordem de confiança, identificador individual, lote, GTIN ou correspondência indicativa por NCM, descrição e unidade. Custos e margens agregados são estimativas limitadas aos XMLs da amostra; estoque inicial ou entrada ausente não representa irregularidade.',body),PageBreak()]
     story += [p('7. Fontes, método e limitações',h1),_table([['Referência','Versão/uso'],['Catálogo CST/cClassTrib e NCM × ClassTrib',f"{catalog.get('version')} · SHA-256 {catalog.get('sha256','—')}"],['Motor fiscal',f"Cálculo item a item, Decimal half-up, template {template_version}"],['Documentos','XMLs são a fonte primária; DANFEs não participam do cálculo.'],['Limitações','Eventos ausentes permanecem como hipóteses; achados cadastrais/econômicos requerem validação fiscal humana.']],[82*mm,194*mm],body,small)]
     doc.build(story,onFirstPage=footer,onLaterPages=footer)
 
@@ -62,16 +64,9 @@ def _document_table(documents,body,small):
 def _nf_for(f,documents):
     ref=f.get('document_ref');d=next((x for x in documents if x.get('document_ref')==ref),None);return d.get('number') if d else 'Lote'
 def _reconciliation_table(documents,body,small):
-    by={}
-    for document in documents:
-        for item in document.get('items',[]):
-            if item.get('chassis'):by.setdefault(item['chassis'],[]).append((document,item))
-    rows=[['Chassi','NF entrada','NF saída','Custo','Venda','Margem','Situação']]
-    for chassis,entries in by.items():
-        inputs=sorted((x for x in entries if x[0].get('direction')=='entrada'),key=lambda x:x[0].get('issued_at') or '')
-        outputs=sorted((x for x in entries if x[0].get('direction')=='saida'),key=lambda x:x[0].get('issued_at') or '')
-        output=outputs[-1] if outputs else None;input_row=inputs[-1] if inputs else None
-        cost=Decimal(str(input_row[1].get('product_value',0))) if input_row else Decimal('0');sale=Decimal(str(output[1].get('product_value',0))) if output else Decimal('0')
-        status='Entrada ausente na amostra' if output and not input_row else ('Em estoque/sem saída' if input_row and not output else ('Margem negativa' if sale-cost<0 else 'Conciliado'))
-        rows.append([chassis,input_row[0].get('number') if input_row else '—',output[0].get('number') if output else '—',money(cost),money(sale),money(sale-cost) if input_row and output else '—',status])
-    return _table(rows,[41*mm,27*mm,27*mm,36*mm,36*mm,36*mm,73*mm],body,small)
+    statuses={'in_stock':'Em estoque/sem saída','missing_input':'Entrada ausente na amostra','insufficient_quantity_data':'Quantidade insuficiente','insufficient_input_quantity':'Estoque inicial/entradas insuficientes','review_identity':'Revisar correspondência','negative_margin':'Margem negativa','zero_margin':'Margem zero','reconciled':'Conciliado','reconciled_estimate':'Estimativa conciliada'}
+    rows=[['Produto / identificador','Tipo / confiança','Qtd. entrada','Qtd. saída','Custo estimado','Venda','Margem estimada','Situação']]
+    for row in build_product_reconciliation(documents):
+        rows.append([row['identifier'],f"{row['identity_type']} / {row['confidence']}",row['input_quantity'],row['output_quantity'],money_or_dash(row['estimated_cost']),money(row['output_value']),money_or_dash(row['margin']),statuses.get(row['status'],row['status'])])
+    if len(rows)==1:rows.append(['Nenhum identificador de produto suficiente para conciliação','—','—','—','—','—','—','Não avaliado'])
+    return _table(rows,[57*mm,33*mm,24*mm,24*mm,34*mm,31*mm,34*mm,39*mm],body,small)

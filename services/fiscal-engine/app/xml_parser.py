@@ -5,6 +5,7 @@ from hashlib import sha256
 import re
 from lxml import etree
 from .catalog import CatalogSnapshot
+from .product_reconciliation import item_identity
 NS={'n':'http://www.portalfiscal.inf.br/nfe'}
 ZERO=Decimal('0');CENT=Decimal('0.01')
 
@@ -46,6 +47,21 @@ def _party(node,prefix,address_tag):
         'municipal_registration':_text(node,f'{prefix}/n:IM'),'email':_text(node,f'{prefix}/n:email'),
         'address':_address(node,f'{prefix}/n:{address_tag}'),
     }.items() if value not in ('',None,{})}
+
+def _additional_identifiers(additional:str):
+    patterns={
+        'chassis':r'\bCHASSI\s*[:\-]?\s*([A-Z0-9]{17})\b',
+        'imei':r'\bIMEI(?:\s*[12])?\s*[:\-]?\s*(\d{15})\b',
+        'serial':r'\b(?:SERIAL|N[ÚU]MERO\s+DE\s+S[ÉE]RIE|S/N)\s*[:\-]?\s*([A-Z0-9][A-Z0-9._/\-]{3,39})',
+        'plate':r'\bPLACA\s*[:\-]?\s*([A-Z0-9-]{7,10})\b',
+    }
+    identifiers=[]
+    for kind,pattern in patterns.items():
+        for match in re.finditer(pattern,additional or '',re.I):
+            value=match.group(1).upper()
+            if not any(item['type']==kind and item['value']==value for item in identifiers):
+                identifiers.append({'type':kind,'value':value,'source':'det/infAdProd','confidence':'exact' if kind in {'chassis','imei','serial'} else 'high'})
+    return identifiers
 
 def _money_map(node,prefix,names):
     return {name:str(_money(_dec(node,f'{prefix}/n:{name}'))) for name in names if _text(node,f'{prefix}/n:{name}')!=''}
@@ -111,9 +127,10 @@ def parse_invoice(data:bytes,source_file_id:str,xml_storage_path:str,catalog:Cat
         pis_cofins_base=_money(pis_base or cof_base)
         if (pis_base and abs(pis_xml-pis_expected)>ZERO) or (cof_base and abs(cof_xml-cof_expected)>ZERO):
             findings.append(finding('PIS-COFINS-ROUND-001','medium','rounding','Arredondamento de PIS/COFINS divergente','O valor informado diverge do arredondamento comercial para centavos.',document_ref,nitem,{'pis_base':str(pis_base),'pis_rate':str(pis_rate),'pis_xml':str(pis_xml),'pis_expected':str(pis_expected),'cofins_base':str(cof_base),'cofins_rate':str(cof_rate),'cofins_xml':str(cof_xml),'cofins_expected':str(cof_expected)},'A diferença propaga-se para a base IBS/CBS.','Padronizar o motor fiscal para Decimal ROUND_HALF_UP e validar a tolerância documental.'))
-        used=_text(prod,'./n:indBemMovelUsado')=='1';additional=_text(det,'./n:infAdProd');chassis_match=re.search(r'CHASSI:\s*([A-Z0-9]{17})',additional,re.I);plate_match=re.search(r'PLACA:\s*([A-Z0-9-]+)',additional,re.I)
-        if (used or chassis_match) and ncm and not ncm.startswith('87'):
-            findings.append(finding('NCM-VEHICLE-001','high','ncm','NCM incompatível com veículo','Item identificado como bem móvel usado/veículo está fora do capítulo 87.',document_ref,nitem,{'ncm':ncm,'description':_text(prod,'./n:xProd'),'chassis':chassis_match.group(1) if chassis_match else None},'Pode afetar incidência, obrigações acessórias e Imposto Seletivo.','Revisar o cadastro fiscal do produto.'))
+        used=_text(prod,'./n:indBemMovelUsado')=='1';additional=_text(det,'./n:infAdProd');identifiers=_additional_identifiers(additional)
+        chassis=next((identifier['value'] for identifier in identifiers if identifier['type']=='chassis'),None);plate=next((identifier['value'] for identifier in identifiers if identifier['type']=='plate'),None)
+        if (used or chassis) and ncm and not ncm.startswith('87'):
+            findings.append(finding('NCM-VEHICLE-001','high','ncm','NCM incompatível com veículo','Item identificado como bem móvel usado/veículo está fora do capítulo 87.',document_ref,nitem,{'ncm':ncm,'description':_text(prod,'./n:xProd'),'chassis':chassis},'Pode afetar incidência, obrigações acessórias e Imposto Seletivo.','Revisar o cadastro fiscal do produto.'))
         if direction=='entrada' and used and actual_cst=='410' and actual_cc=='410999':
             findings.append(finding('USED-GOOD-CLASS-001','high','classification','Aquisição de bem usado em classificação genérica','Aquisição onerosa para revenda foi informada em cClassTrib 410999.',document_ref,nitem,{'actual':'410999','candidate':'410017','indBemMovelUsado':True},'Pode impedir a identificação automática do crédito presumido.','Validar o uso de CST 410/cClassTrib 410017 com a assessoria fiscal e a tabela vigente.'))
         tax_groups={}
@@ -121,16 +138,33 @@ def parse_invoice(data:bytes,source_file_id:str,xml_storage_path:str,catalog:Cat
             elements=tax.xpath(f'./n:{group}//*[not(*)]',namespaces=NS)
             values={etree.QName(element).localname:(element.text or '').strip() for element in elements if (element.text or '').strip()}
             if values:tax_groups[group]=values
+        traceability=[]
+        for trace in prod.xpath('./n:rastro',namespaces=NS):
+            entry={key:value for key,value in {
+                'lot':_text(trace,'./n:nLote'),'quantity':_text(trace,'./n:qLote'),
+                'manufactured_at':_text(trace,'./n:dFab'),'expires_at':_text(trace,'./n:dVal'),
+                'aggregation_code':_text(trace,'./n:cAgreg'),
+            }.items() if value}
+            if entry:
+                traceability.append(entry)
+                if entry.get('aggregation_code'):
+                    identifiers.append({'type':'aggregation_code','value':entry['aggregation_code'],'source':'prod/rastro/cAgreg','confidence':'exact'})
+        product_code=_text(prod,'./n:cProd') or None;ean=_text(prod,'./n:cEAN') or None;ean_taxable=_text(prod,'./n:cEANTrib') or None
+        if product_code:identifiers.append({'type':'product_code','value':product_code,'source':'prod/cProd','confidence':'contextual'})
+        if ean:identifiers.append({'type':'gtin','value':ean,'source':'prod/cEAN','confidence':'high'})
+        if ean_taxable and ean_taxable!=ean:identifiers.append({'type':'gtin_taxable','value':ean_taxable,'source':'prod/cEANTrib','confidence':'high'})
         details={
-            'ean':_text(prod,'./n:cEAN') or None,'ean_taxable':_text(prod,'./n:cEANTrib') or None,
+            'ean':ean,'ean_taxable':ean_taxable,
             'unit':_text(prod,'./n:uCom') or None,'quantity':_text(prod,'./n:qCom') or None,
             'unit_value':_text(prod,'./n:vUnCom') or None,'taxable_unit':_text(prod,'./n:uTrib') or None,
             'taxable_quantity':_text(prod,'./n:qTrib') or None,'taxable_unit_value':_text(prod,'./n:vUnTrib') or None,
             'origin':_text(tax,'.//n:ICMS/*/n:orig') or None,'icms_cst':_text(tax,'.//n:ICMS/*/n:CST') or _text(tax,'.//n:ICMS/*/n:CSOSN') or None,
             'pis_cst':_text(tax,'.//n:PIS/*/n:CST') or None,'cofins_cst':_text(tax,'.//n:COFINS/*/n:CST') or None,
-            'additional_information':additional or None,'taxes':tax_groups,
+            'additional_information':additional or None,'identifiers':identifiers,'traceability':traceability,'taxes':tax_groups,
         }
-        items.append({'item_number':nitem,'product_code':_text(prod,'./n:cProd') or None,'description':_text(prod,'./n:xProd') or None,'ncm':ncm or None,'ex_code':ex_code,'cfop':_text(prod,'./n:CFOP') or None,'actual_cst':actual_cst,'actual_cclass_trib':actual_cc,'expected_cst':expected_cst,'expected_cclass_trib':expected_cc,'classification_status':class_status,'product_value':str(_money(components['vProd'])),'ibs_cbs_base_xml':str(base_xml),'ibs_cbs_base_recalculated':str(base_calc),'base_difference':str(_money(base_xml-base_calc)),'ibs_xml':str(ibs_xml),'ibs_recalculated':str(ibs_calc),'cbs_xml':str(cbs_xml),'cbs_recalculated':str(cbs_calc),'tax_components':{k:str(v) for k,v in components.items()},'catalog_match':evidence,'details':details,'chassis':chassis_match.group(1).upper() if chassis_match else None,'plate':plate_match.group(1).upper() if plate_match else None,'used_movable_good':used,'pis_cofins':str(_money(components['vPIS']+components['vCOFINS'])),'pis_cofins_base':str(pis_cofins_base)})
+        item_data={'item_number':nitem,'product_code':product_code,'description':_text(prod,'./n:xProd') or None,'ncm':ncm or None,'ex_code':ex_code,'cfop':_text(prod,'./n:CFOP') or None,'actual_cst':actual_cst,'actual_cclass_trib':actual_cc,'expected_cst':expected_cst,'expected_cclass_trib':expected_cc,'classification_status':class_status,'product_value':str(_money(components['vProd'])),'ibs_cbs_base_xml':str(base_xml),'ibs_cbs_base_recalculated':str(base_calc),'base_difference':str(_money(base_xml-base_calc)),'ibs_xml':str(ibs_xml),'ibs_recalculated':str(ibs_calc),'cbs_xml':str(cbs_xml),'cbs_recalculated':str(cbs_calc),'tax_components':{k:str(v) for k,v in components.items()},'catalog_match':evidence,'details':details,'chassis':chassis,'plate':plate,'used_movable_good':used,'pis_cofins':str(_money(components['vPIS']+components['vCOFINS'])),'pis_cofins_base':str(pis_cofins_base)}
+        details['reconciliation_identity']=item_identity(item_data)
+        items.append(item_data)
     total=sum((Decimal(i['product_value']) for i in items),ZERO);base=sum((Decimal(i['ibs_cbs_base_xml']) for i in items),ZERO);ibs=sum((Decimal(i['ibs_xml']) for i in items),ZERO);cbs=sum((Decimal(i['cbs_xml']) for i in items),ZERO)
     payments=[]
     for payment in inf.xpath('./n:pag/n:detPag',namespaces=NS):
