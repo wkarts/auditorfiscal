@@ -2,9 +2,9 @@ from __future__ import annotations
 from pathlib import Path
 from hashlib import sha256
 from decimal import Decimal,InvalidOperation
-from sqlalchemy import create_engine,text
+from sqlalchemy import text
 import re
-from .settings import settings
+from .database import create_database_engine
 from .xlsx_reader import read_xlsx
 
 def _digits(v):return re.sub(r'\D','',str(v or ''))
@@ -20,7 +20,7 @@ def _num(v):
     except InvalidOperation:return None
 
 def normalize_catalog(path:Path,valid_from:str,base_version_id:str|None=None):
-    engine=create_engine(settings.database_url,pool_pre_ping=True)
+    engine=create_database_engine()
     with engine.connect() as c:
         if not base_version_id:base_version_id=c.execute(text("SELECT id FROM fiscal_catalog_versions WHERE status='published' ORDER BY published_at DESC LIMIT 1")).scalar_one()
         csts={r[0] for r in c.execute(text('SELECT cst FROM cst_catalog_entries WHERE catalog_version_id=:v'),{'v':base_version_id})}
