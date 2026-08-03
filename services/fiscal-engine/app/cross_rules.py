@@ -22,9 +22,15 @@ def apply_cross_document_rules(documents:list[dict])->list[dict]:
                 findings.append(finding('DUPLICATE-ECONOMIC-001','critical','duplicate','Possível duplicidade econômica',f'NF {da["number"]} e NF {db["number"]} apresentam mesmo chassi, contraparte e emissão próxima.',da['document_ref'],None,ev,'Pode superestimar faturamento, bases e débitos.','Consultar eventos oficiais de cancelamento na SEFAZ.',Decimal('0.90')))
         for out_doc,out_item in outputs:
             prior=[x for x in inputs if (x[0].get('issued_at') or '') <= (out_doc.get('issued_at') or '')]
-            if not prior:continue
+            if not prior:
+                findings.append(finding('RECONCILIATION-MISSING-INPUT-001','medium','data_quality','Entrada anterior não localizada','Não foi localizado, na amostra, documento de entrada anterior para o chassi vendido.',out_doc['document_ref'],out_item['item_number'],{'layer':'economic','chassis':chassis,'output_nf':out_doc['number'],'sample_limitation':True},'Impede conciliar custo, margem e eventual crédito presumido.','Confirmar se a entrada está fora do período/amostra e importar o XML correspondente.'))
+                continue
             in_doc,in_item=sorted(prior,key=lambda x:x[0].get('issued_at') or '')[-1]
             cost=Decimal(in_item['product_value']);sale=Decimal(out_item['product_value']);margin=sale-cost;pis_cof=Decimal(out_item.get('pis_cofins') or '0')
+            if margin < 0:
+                findings.append(finding('NEGATIVE-MARGIN-001','high','economic','Venda abaixo do custo documental','A saída apresenta valor inferior ao custo da última entrada conciliada por chassi.',out_doc['document_ref'],out_item['item_number'],{'layer':'economic','chassis':chassis,'input_nf':in_doc['number'],'output_nf':out_doc['number'],'cost':str(cost),'sale':str(sale),'margin':str(margin)},'Pode indicar prejuízo, custo incompleto ou conciliação documental incorreta.','Validar o custo, as despesas agregadas, devoluções e a correspondência do chassi.'))
+            elif margin == 0:
+                findings.append(finding('ZERO-MARGIN-001','medium','economic','Margem documental zerada','Entrada e saída conciliadas apresentam o mesmo valor de produto.',out_doc['document_ref'],out_item['item_number'],{'layer':'economic','chassis':chassis,'input_nf':in_doc['number'],'output_nf':out_doc['number'],'cost':str(cost),'sale':str(sale)},'Pode sinalizar operação sem margem ou custo/receita incompletos na amostra.','Revisar descontos, despesas, bonificações e composição do preço.'))
             # Prefer the base explicitly informed in the XML. Infer by the combined 3.65% rate
             # only for older documents/fixtures that do not expose vBC in the normalized item.
             explicit_base=Decimal(out_item.get('pis_cofins_base') or '0')

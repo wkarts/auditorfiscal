@@ -31,4 +31,9 @@ class ApplicationLog extends Model
     {
         return $this->belongsTo(AnalysisBatch::class);
     }
+
+    public function company()
+    {
+        return $this->belongsTo(Company::class);
+    }
 }

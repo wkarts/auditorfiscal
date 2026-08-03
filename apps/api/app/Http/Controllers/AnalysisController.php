@@ -9,6 +9,7 @@ use App\Models\FiscalDocument;
 use App\Models\Finding;
 use App\Models\SourceFile;
 use App\Services\AnalysisFailure;
+use App\Services\AnalysisAnalytics;
 use App\Services\ApplicationLogger;
 use App\Services\CompanyAccess;
 use Illuminate\Http\Request;
@@ -52,9 +53,10 @@ class AnalysisController extends Controller
             'period_end' => 'nullable|date|after_or_equal:period_start',
             'catalog_version_id' => 'nullable|uuid|exists:fiscal_catalog_versions,id',
             'files' => 'required|array|min:1',
-            'files.*' => "file|max:$max|mimes:xml,zip",
+            'files.*' => "file|max:$max|mimes:xml,zip,pdf",
         ]);
-        CompanyAccess::ensure($request->user(), $data['company_id']);
+        $company = CompanyAccess::ensure($request->user(), $data['company_id']);
+        abort_if(! $company->active || ! $company->tenant?->active, 422, 'A empresa ou o tenant está inativo para novas auditorias.');
         $catalog = $data['catalog_version_id']
             ? FiscalCatalogVersion::whereKey($data['catalog_version_id'])->where('status', 'published')->firstOrFail()
             : FiscalCatalogVersion::published()->latest('published_at')->firstOrFail();
@@ -153,6 +155,30 @@ class AnalysisController extends Controller
         return $batch->applicationLogs()->latest('id')->paginate($perPage);
     }
 
+    public function log(Request $request, AnalysisBatch $batch, \App\Models\ApplicationLog $log)
+    {
+        CompanyAccess::ensure($request->user(), $batch->company_id);
+        abort_unless($log->analysis_batch_id === $batch->id, 404);
+        return response()->json($log, 200, ['Content-Disposition' => 'attachment; filename="audit-log-'.$log->id.'.json"'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    }
+
+    public function exportLogs(Request $request, AnalysisBatch $batch)
+    {
+        CompanyAccess::ensure($request->user(), $batch->company_id);
+        $query = $batch->applicationLogs()->oldest('id');
+        return response()->streamDownload(function () use ($query): void {
+            $query->chunkById(500, function ($logs): void {
+                foreach ($logs as $log) echo json_encode($log->toArray(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)."\n";
+            });
+        }, 'auditoria-'.$batch->id.'-logs.ndjson', ['Content-Type' => 'application/x-ndjson; charset=UTF-8']);
+    }
+
+    public function analytics(Request $request, AnalysisBatch $batch, AnalysisAnalytics $analytics)
+    {
+        CompanyAccess::ensure($request->user(), $batch->company_id);
+        return $analytics->build($batch);
+    }
+
     public function documents(Request $request, AnalysisBatch $batch)
     {
         CompanyAccess::ensure($request->user(), $batch->company_id);
@@ -172,6 +198,16 @@ class AnalysisController extends Controller
         abort_unless($document->analysis_batch_id === $batch->id, 404);
 
         return $document->load('items', 'findings');
+    }
+
+    public function xml(Request $request, AnalysisBatch $batch, FiscalDocument $document)
+    {
+        return $this->documentFile($request, $batch, $document, 'xml_storage_path', 'application/xml; charset=UTF-8', 'xml');
+    }
+
+    public function danfe(Request $request, AnalysisBatch $batch, FiscalDocument $document)
+    {
+        return $this->documentFile($request, $batch, $document, 'danfe_storage_path', 'application/pdf', 'pdf');
     }
 
     public function findings(Request $request, AnalysisBatch $batch)
@@ -276,5 +312,22 @@ class AnalysisController extends Controller
         }
 
         return response()->json($newBatch->load('sourceFiles', 'catalogVersion'), 202);
+    }
+
+    private function documentFile(Request $request, AnalysisBatch $batch, FiscalDocument $document, string $field, string $contentType, string $extension)
+    {
+        CompanyAccess::ensure($request->user(), $batch->company_id);
+        abort_unless($document->analysis_batch_id === $batch->id, 404);
+        $path = $document->{$field};
+        abort_unless($path && Storage::disk(config('filesystems.default'))->exists($path), 404, strtoupper($extension).' não disponível.');
+        $disk = Storage::disk(config('filesystems.default'));
+        $filename = 'NFe-'.($document->access_key ?: $document->id).'.'.$extension;
+        $disposition = $request->boolean('download') ? 'attachment' : 'inline';
+        return response()->stream(function () use ($disk, $path): void {
+            $stream = $disk->readStream($path);
+            if (! is_resource($stream)) abort(404);
+            fpassthru($stream);
+            fclose($stream);
+        }, 200, ['Content-Type' => $contentType, 'Content-Disposition' => $disposition.'; filename="'.$filename.'"', 'X-Content-Type-Options' => 'nosniff']);
     }
 }

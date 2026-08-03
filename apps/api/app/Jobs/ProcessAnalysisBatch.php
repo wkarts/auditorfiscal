@@ -174,6 +174,7 @@ class ProcessAnalysisBatch implements ShouldQueue
                     $itemData['fiscal_document_id'] = $document->id;
                     $itemData['tax_components'] = json_encode($itemData['tax_components'] ?? [], JSON_UNESCAPED_UNICODE);
                     $itemData['catalog_match'] = json_encode($itemData['catalog_match'] ?? [], JSON_UNESCAPED_UNICODE);
+                    $itemData['details'] = json_encode($itemData['details'] ?? [], JSON_UNESCAPED_UNICODE);
                     $item = FiscalItem::create($itemData);
                     $itemMap[$reference.':'.$itemNumber] = $item->id;
                 }

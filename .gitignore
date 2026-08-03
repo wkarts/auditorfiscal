@@ -4,6 +4,9 @@
 /vendor/
 /node_modules/
 /dist/
+**/node_modules/
+**/dist/
+/var/
 /storage/*.key
 /storage/framework/cache/*
 /storage/framework/sessions/*
