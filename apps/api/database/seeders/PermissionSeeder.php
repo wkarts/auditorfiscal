@@ -31,6 +31,9 @@ class PermissionSeeder extends Seeder
             'catalogs.publish',
             'analyses.view',
             'analyses.create',
+            'analyses.cancel',
+            'analyses.delete',
+            'analyses.restore',
             'analyses.resolve',
             'reports.download',
             'audit.view',
@@ -51,6 +54,7 @@ class PermissionSeeder extends Seeder
             'catalogs.view',
             'analyses.view',
             'analyses.create',
+            'analyses.cancel',
             'analyses.resolve',
             'reports.download',
         ]);

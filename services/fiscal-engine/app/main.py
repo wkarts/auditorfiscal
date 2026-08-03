@@ -13,6 +13,7 @@ from prometheus_client import make_asgi_app
 from sqlalchemy.exc import SQLAlchemyError
 
 from .audit_service import AuditService
+from .cancellation import AuditCancelled
 from .catalog_import import normalize_catalog
 from .database import check_database_connection
 from .security import require_internal_token
@@ -57,6 +58,15 @@ async def unexpected_error(request:Request,exception:Exception):
         'incident_id':incident_id,
         'exception_class':exception.__class__.__name__,
         'technical_message':technical_message,
+    })
+
+
+@app.exception_handler(AuditCancelled)
+async def audit_cancelled(_request:Request,exception:AuditCancelled):
+    return JSONResponse(status_code=409,content={
+        'detail':'A auditoria foi cancelada em um ponto seguro do processamento.',
+        'error_code':'AUDIT_CANCELLED',
+        'technical_message':str(exception),
     })
 
 

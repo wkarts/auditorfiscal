@@ -22,25 +22,68 @@ class AnalysisController extends Controller
 {
     public function index(Request $request)
     {
-        $query = AnalysisBatch::with('company', 'catalogVersion')
+        $data = $request->validate([
+            'company_id' => 'nullable|uuid',
+            'status' => 'nullable|string|in:uploading,queued,processing,retrying,cancelling,completed,failed,cancelled,superseded',
+            'visibility' => 'nullable|string|in:active,deleted',
+            'search' => 'nullable|string|max:120',
+            'page' => 'nullable|integer|min:1',
+        ]);
+        $visibility = $data['visibility'] ?? 'active';
+        if ($visibility === 'deleted') {
+            abort_unless($request->user()->can('analyses.restore'), 403, 'Você não possui permissão para consultar auditorias excluídas.');
+        }
+
+        $query = AnalysisBatch::query();
+        if ($visibility === 'deleted') {
+            $query->onlyTrashed();
+        }
+        $query->with('company', 'catalogVersion')
             ->withCount(['documents', 'findings', 'reports'])
             ->whereIn('company_id', CompanyAccess::ids($request->user()));
 
-        if ($request->filled('company_id')) {
-            $query->where('company_id', $request->company_id);
+        if (! empty($data['company_id'])) {
+            $query->where('company_id', $data['company_id']);
         }
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
+        if (! empty($data['search'])) {
+            $term = '%'.mb_strtolower(trim($data['search'])).'%';
+            $query->where(function ($search) use ($term): void {
+                $search->whereRaw('LOWER(name) LIKE ?', [$term])
+                    ->orWhereHas('company', function ($company) use ($term): void {
+                        $company->whereRaw('LOWER(legal_name) LIKE ?', [$term])
+                            ->orWhereRaw('LOWER(COALESCE(trade_name, \'\')) LIKE ?', [$term])
+                            ->orWhere('tax_id', 'like', str_replace('%', '', $term).'%');
+                    });
+            });
+        }
+
+        $summaryQuery = clone $query;
+        $summary = [
+            'total' => (clone $summaryQuery)->count(),
+            'active' => (clone $summaryQuery)->whereIn('status', ['uploading', 'queued', 'processing', 'retrying', 'cancelling'])->count(),
+            'completed' => (clone $summaryQuery)->where('status', 'completed')->count(),
+            'failed' => (clone $summaryQuery)->where('status', 'failed')->count(),
+            'cancelled' => (clone $summaryQuery)->where('status', 'cancelled')->count(),
+        ];
+
+        if (! empty($data['status'])) {
+            $query->where('status', $data['status']);
         }
 
         $batches = $query->latest()->paginate(30);
-        $batches->getCollection()->each(function (AnalysisBatch $batch): void {
+        $canCancel = $request->user()->can('analyses.cancel');
+        $canDelete = $request->user()->can('analyses.delete');
+        $canRestore = $request->user()->can('analyses.restore');
+        $batches->getCollection()->each(function (AnalysisBatch $batch) use ($canCancel, $canDelete, $canRestore): void {
             if (is_array($batch->error)) {
                 $batch->setAttribute('error', ApplicationLogger::sanitize($batch->error));
             }
+            $batch->setAttribute('can_cancel', $canCancel && ! $batch->trashed() && $batch->canBeCancelled());
+            $batch->setAttribute('can_delete', $canDelete && ! $batch->trashed() && $batch->canBeDeleted());
+            $batch->setAttribute('can_restore', $canRestore && $batch->trashed());
         });
 
-        return $batches;
+        return response()->json(array_merge($batches->toArray(), ['summary' => $summary]));
     }
 
     public function store(Request $request)
@@ -116,7 +159,7 @@ class AnalysisController extends Controller
                 }
             }
             try {
-                $batch?->delete();
+                $batch?->forceDelete();
             } catch (Throwable $cleanupException) {
                 report($cleanupException);
             }
@@ -139,6 +182,8 @@ class AnalysisController extends Controller
             'reprocesses:id,reprocessed_from_id,name,status,created_at',
         )->loadCount(['documents', 'findings', 'applicationLogs']);
         $batch->setAttribute('can_reprocess', $batch->canBeReprocessed());
+        $batch->setAttribute('can_cancel', $request->user()->can('analyses.cancel') && $batch->canBeCancelled());
+        $batch->setAttribute('can_delete', $request->user()->can('analyses.delete') && $batch->canBeDeleted());
         $batch->setAttribute('reprocess_block_reason', $batch->reprocessBlockReason());
         if (is_array($batch->error)) {
             $batch->setAttribute('error', ApplicationLogger::sanitize($batch->error));
@@ -243,6 +288,108 @@ class AnalysisController extends Controller
         return $finding;
     }
 
+    public function cancel(Request $request, AnalysisBatch $batch)
+    {
+        CompanyAccess::ensure($request->user(), $batch->company_id);
+        $data = $request->validate([
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $result = DB::transaction(function () use ($batch, $request, $data): array {
+            $locked = AnalysisBatch::query()->lockForUpdate()->findOrFail($batch->id);
+            if ($locked->status === 'cancelled') {
+                return [$locked, false, 'A auditoria já estava cancelada.'];
+            }
+            if ($locked->status === 'cancelling') {
+                return [$locked, false, 'O cancelamento já foi solicitado e está em andamento.'];
+            }
+            abort_unless($locked->canBeCancelled(), 409, 'Esta auditoria já terminou e não pode mais ser cancelada.');
+
+            $immediate = in_array($locked->status, ['uploading', 'queued'], true);
+            $locked->update([
+                'status' => $immediate ? 'cancelled' : 'cancelling',
+                'cancel_requested_at' => now(),
+                'cancelled_at' => $immediate ? now() : null,
+                'cancelled_by' => $request->user()->id,
+                'cancellation_reason' => $data['reason'] ?? null,
+                'finished_at' => $immediate ? now() : null,
+                'error' => null,
+            ]);
+
+            return [
+                $locked,
+                true,
+                $immediate
+                    ? 'Auditoria cancelada antes do início do processamento.'
+                    : 'Cancelamento solicitado. O motor encerrará no próximo ponto seguro.',
+            ];
+        }, 3);
+
+        /** @var AnalysisBatch $updated */
+        [$updated, $created, $message] = $result;
+        if ($created) {
+            ApplicationLogger::record(
+                $updated->status === 'cancelled' ? 'notice' : 'warning',
+                'audit-api',
+                $updated->status === 'cancelled' ? 'cancelled' : 'cancellation_requested',
+                $message,
+                [
+                    'previous_status' => $batch->status,
+                    'reason' => $data['reason'] ?? null,
+                ],
+                $updated,
+                $request->user()->id,
+                $request->attributes->get('request_id'),
+            );
+        }
+
+        return response()->json(['data' => $updated->fresh(), 'message' => $message]);
+    }
+
+    public function destroy(Request $request, AnalysisBatch $batch)
+    {
+        CompanyAccess::ensure($request->user(), $batch->company_id);
+        $data = $request->validate([
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        DB::transaction(function () use ($batch, $request, $data): void {
+            $locked = AnalysisBatch::query()->lockForUpdate()->findOrFail($batch->id);
+            abort_unless($locked->canBeDeleted(), 409, 'Cancele e aguarde o encerramento da auditoria antes de excluí-la.');
+            $locked->update([
+                'deleted_by' => $request->user()->id,
+                'deletion_reason' => $data['reason'] ?? null,
+            ]);
+            ApplicationLogger::record('notice', 'audit-api', 'soft_deleted', 'Auditoria movida para excluídas.', [
+                'status' => $locked->status,
+                'reason' => $data['reason'] ?? null,
+            ], $locked, $request->user()->id, $request->attributes->get('request_id'));
+            $locked->delete();
+        }, 3);
+
+        return response()->json(['message' => 'Auditoria movida para excluídas. Os arquivos e registros foram preservados.']);
+    }
+
+    public function restore(Request $request, string $batchId)
+    {
+        $data = $request->validate([
+            'reason' => 'nullable|string|max:500',
+        ]);
+        $batch = AnalysisBatch::onlyTrashed()->findOrFail($batchId);
+        CompanyAccess::ensure($request->user(), $batch->company_id);
+
+        DB::transaction(function () use ($batch, $request, $data): void {
+            $locked = AnalysisBatch::onlyTrashed()->lockForUpdate()->findOrFail($batch->id);
+            $locked->restore();
+            ApplicationLogger::record('notice', 'audit-api', 'restored', 'Auditoria restaurada da área de excluídas.', [
+                'reason' => $data['reason'] ?? null,
+                'previous_deletion_reason' => $locked->deletion_reason,
+            ], $locked, $request->user()->id, $request->attributes->get('request_id'));
+        }, 3);
+
+        return response()->json(['data' => $batch->fresh(), 'message' => 'Auditoria restaurada com sucesso.']);
+    }
+
     public function reprocess(Request $request, AnalysisBatch $batch)
     {
         CompanyAccess::ensure($request->user(), $batch->company_id);
@@ -260,13 +407,14 @@ class AnalysisController extends Controller
         $newBatch = DB::transaction(function () use ($batch, $catalogId, $request): AnalysisBatch {
             $source = AnalysisBatch::query()->lockForUpdate()->with('sourceFiles')->findOrFail($batch->id);
             abort_unless($source->canBeReprocessed(), 409, $source->reprocessBlockReason());
-            $activeReprocess = $source->reprocesses()->whereIn('status', ['uploading', 'queued', 'processing', 'retrying'])->first();
+            $activeReprocess = $source->reprocesses()->whereIn('status', ['uploading', 'queued', 'processing', 'retrying', 'cancelling'])->first();
             abort_if($activeReprocess, 409, 'Já existe um reprocessamento ativo para esta auditoria.');
 
             $new = $source->replicate([
                 'status', 'progress', 'processed_files', 'document_count', 'item_count', 'finding_count',
                 'summary', 'error', 'attempt_count', 'last_attempt_at', 'started_at', 'finished_at',
-                'reprocessed_from_id',
+                'reprocessed_from_id', 'cancel_requested_at', 'cancelled_at', 'cancelled_by',
+                'cancellation_reason', 'deleted_at', 'deleted_by', 'deletion_reason',
             ]);
             $new->id = (string) Str::uuid();
             $new->reprocessed_from_id = $source->id;

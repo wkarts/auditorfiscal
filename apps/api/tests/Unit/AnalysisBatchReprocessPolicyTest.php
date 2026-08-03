@@ -15,10 +15,11 @@ class AnalysisBatchReprocessPolicyTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_failed_and_completed_batches_can_be_reprocessed(): void
+    public function test_failed_completed_and_cancelled_batches_can_be_reprocessed(): void
     {
         $this->assertTrue($this->batch('failed')->canBeReprocessed());
         $this->assertTrue($this->batch('completed')->canBeReprocessed());
+        $this->assertTrue($this->batch('cancelled')->canBeReprocessed());
     }
 
     public function test_only_stale_queued_batches_can_be_reprocessed(): void
@@ -38,6 +39,26 @@ class AnalysisBatchReprocessPolicyTest extends TestCase
         $this->assertFalse($this->batch('processing')->canBeReprocessed());
         $this->assertFalse($this->batch('retrying')->canBeReprocessed());
         $this->assertFalse($this->batch('superseded')->canBeReprocessed());
+    }
+
+    public function test_only_active_batches_can_be_cancelled(): void
+    {
+        foreach (['uploading', 'queued', 'processing', 'retrying', 'cancelling'] as $status) {
+            $this->assertTrue($this->batch($status)->canBeCancelled(), $status);
+        }
+        foreach (['completed', 'failed', 'cancelled', 'superseded'] as $status) {
+            $this->assertFalse($this->batch($status)->canBeCancelled(), $status);
+        }
+    }
+
+    public function test_only_terminal_batches_can_be_soft_deleted(): void
+    {
+        foreach (['completed', 'failed', 'cancelled', 'superseded'] as $status) {
+            $this->assertTrue($this->batch($status)->canBeDeleted(), $status);
+        }
+        foreach (['uploading', 'queued', 'processing', 'retrying', 'cancelling'] as $status) {
+            $this->assertFalse($this->batch($status)->canBeDeleted(), $status);
+        }
     }
 
     private function batch(string $status, $updatedAt = null): AnalysisBatch

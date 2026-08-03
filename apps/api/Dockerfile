@@ -35,6 +35,9 @@ RUN set -eux; \
 
 FROM php-base AS runtime
 
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
+
 WORKDIR /var/www/html
 
 COPY --from=vendor --chown=www-data:www-data /app /var/www/html
