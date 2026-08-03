@@ -2,15 +2,33 @@
 
 namespace App\Services;
 
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 class AnalysisFailure
 {
+    public static function httpStatus(Throwable $exception): int
+    {
+        return match (true) {
+            $exception instanceof ValidationException => $exception->status,
+            $exception instanceof AuthenticationException => 401,
+            $exception instanceof AuthorizationException => 403,
+            $exception instanceof ModelNotFoundException => 404,
+            $exception instanceof HttpResponseException => $exception->getResponse()->getStatusCode(),
+            $exception instanceof HttpExceptionInterface => $exception->getStatusCode(),
+            default => 500,
+        };
+    }
+
     public static function from(Throwable $exception, ?int $attempt = null): array
     {
         $incidentId = (string) Str::uuid();

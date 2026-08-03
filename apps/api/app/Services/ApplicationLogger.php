@@ -56,7 +56,7 @@ class ApplicationLogger
                 'request_id' => $requestId,
                 'incident_id' => $incidentId,
                 'attempt' => $attempt,
-                'created_at' => now(),
+                'created_at' => now('UTC'),
             ]);
         } catch (Throwable $exception) {
             Log::warning('Não foi possível persistir o log estruturado da aplicação.', [
