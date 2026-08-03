@@ -1,6 +1,7 @@
 from pydantic import model_validator
 from pydantic_settings import BaseSettings,SettingsConfigDict
 from sqlalchemy import URL,make_url
+from sqlalchemy.exc import ArgumentError
 class Settings(BaseSettings):
     model_config=SettingsConfigDict(env_file='.env',extra='ignore')
     database_url:str|None=None
@@ -26,7 +27,12 @@ class Settings(BaseSettings):
     @property
     def sqlalchemy_url(self)->URL:
         if self.database_url:
-            return make_url(self.database_url)
+            try:
+                configured_url=make_url(self.database_url)
+            except ArgumentError:
+                configured_url=None
+            if configured_url is not None and configured_url.host and not configured_url.host.startswith('@'):
+                return configured_url
         return URL.create(
             drivername='postgresql+psycopg',
             username=self.db_username,

@@ -130,3 +130,33 @@ docker compose logs auditor-fiscal-app-init
 No contrato Dockge, `DEPLOY_MODE=source` não compila o repositório: essa stack
 sempre consome as imagens definidas por `IMAGE_REGISTRY`, `IMAGE_NAMESPACE` e
 `APP_IMAGE_TAG`.
+
+## Erro de DNS com `@auditor-fiscal-postgres`
+
+O erro `failed to resolve host '@auditor-fiscal-postgres'` comprova que um
+Compose legado ainda está construindo `DATABASE_URL` por interpolação. Quando a
+senha termina em `@`, esse caractere passa a fazer parte do hostname interpretado
+pelo driver. Remova completamente `DATABASE_URL` do serviço
+`auditor-fiscal-engine` e use o contrato estruturado:
+
+```yaml
+environment:
+  DB_HOST: auditor-fiscal-postgres
+  DB_PORT: 5432
+  DB_DATABASE: ${DB_DATABASE:-auditor_fiscal}
+  DB_USERNAME: ${DB_USERNAME:-auditor}
+  DB_PASSWORD: ${DB_PASSWORD}
+```
+
+Recrie engine e worker e valide a URL efetiva com a senha ocultada:
+
+```bash
+docker compose up -d --force-recreate auditor-fiscal-engine auditor-fiscal-worker
+docker compose exec auditor-fiscal-engine python -c "from app.settings import settings; print(settings.sqlalchemy_url.render_as_string(hide_password=True))"
+docker compose ps
+```
+
+O hostname exibido deve ser `auditor-fiscal-postgres`, sem `@` no início. As
+imagens atuais também rejeitam automaticamente uma `DATABASE_URL` malformada e
+reconstroem a conexão a partir de `DB_*`, mas a remoção da configuração legada
+continua obrigatória para manter o deploy previsível.

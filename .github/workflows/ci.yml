@@ -241,6 +241,19 @@ jobs:
           validate_prefixed_services -f compose.yaml -f deploy/ci/compose.ci.yaml
           validate_prefixed_services --env-file .env.example -f deploy/dockge/compose.yaml
 
+          validate_engine_database_contract() {
+            docker compose "$@" config --format json | python3 -c '
+          import json, sys
+          engine = json.load(sys.stdin)["services"]["auditor-fiscal-engine"]
+          environment = engine.get("environment", {})
+          assert "DATABASE_URL" not in environment, "DATABASE_URL legada não pode ser injetada no engine"
+          assert environment.get("DB_HOST") == "auditor-fiscal-postgres", environment.get("DB_HOST")
+          assert all(key in environment for key in ("DB_PORT", "DB_DATABASE", "DB_USERNAME", "DB_PASSWORD"))
+          '
+          }
+          validate_engine_database_contract -f compose.yaml
+          validate_engine_database_contract --env-file .env.example -f deploy/dockge/compose.yaml
+
           root_services="$(docker compose -f compose.yaml --profile monitoring config --services | sort)"
           dockge_services="$(docker compose --env-file .env.example -f deploy/dockge/compose.yaml --profile monitoring config --services | sort)"
           if [[ "$root_services" != "$dockge_services" ]]; then

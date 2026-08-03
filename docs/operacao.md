@@ -36,6 +36,11 @@ mantidos por `APPLICATION_LOG_RETENTION_DAYS` (90 dias por padrão) e removidos
 pelo `model:prune` diário. O log global é restrito à permissão `logs.view`; o
 histórico de uma auditoria respeita o acesso à empresa.
 
+Falhas esperadas do cliente, como credenciais inválidas, sessão ausente,
+validação ou falta de permissão, preservam seus status 401/403/422 e não são
+registradas como incidentes internos. Os horários são persistidos em UTC e
+convertidos para o fuso do navegador na interface.
+
 ## Reprocessamento
 
 Use **Reprocessar auditoria** no detalhe do lote. A operação valida a presença

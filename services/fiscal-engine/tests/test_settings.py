@@ -43,3 +43,21 @@ def test_explicit_database_url_remains_supported(monkeypatch):
     assert configured.sqlalchemy_url.host == 'database'
     assert configured.sqlalchemy_url.port == 5433
     assert configured.sqlalchemy_url.password == 'encoded@password'
+
+
+def test_malformed_legacy_database_url_falls_back_to_structured_settings(monkeypatch):
+    monkeypatch.setenv(
+        'DATABASE_URL',
+        'postgresql+psycopg://auditor:password@@auditor-fiscal-postgres:5432/auditor_fiscal',
+    )
+    monkeypatch.setenv('DB_HOST','auditor-fiscal-postgres')
+    monkeypatch.setenv('DB_PORT','5432')
+    monkeypatch.setenv('DB_DATABASE','auditor_fiscal')
+    monkeypatch.setenv('DB_USERNAME','auditor')
+    monkeypatch.setenv('DB_PASSWORD','password@')
+
+    configured=Settings(_env_file=None)
+
+    assert configured.sqlalchemy_url.host == 'auditor-fiscal-postgres'
+    assert configured.sqlalchemy_url.password == 'password@'
+    assert not configured.sqlalchemy_url.host.startswith('@')

@@ -10,7 +10,6 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -30,7 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
             if (! $request->is('api/*')) {
                 return null;
             }
-            $status = $exception instanceof HttpExceptionInterface ? $exception->getStatusCode() : 500;
+            $status = AnalysisFailure::httpStatus($exception);
             if ($status < 500) {
                 return null;
             }
