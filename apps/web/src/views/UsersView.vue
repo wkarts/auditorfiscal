@@ -4,13 +4,13 @@ import {api,messageOf} from '@/lib/api';
 import {useAuthStore} from '@/stores/auth';
 
 const auth=useAuthStore();
-const users=ref<any[]>([]),roles=ref<any[]>([]),clients=ref<any[]>([]),accounts=ref<any[]>([]),editing=ref<number>(),error=ref('');
+const users=ref<any[]>([]),roles=ref<any[]>([]),clients=ref<any[]>([]),accounts=ref<any[]>([]),editing=ref<number>(),error=ref(''),loading=ref(false);
 const empty=()=>({name:'',email:'',password:'',role:'Auditor Fiscal',account_id:auth.user?.tenant_id||'',access_mode:'selected',client_ids:[] as string[],active:true});
 const form=ref<any>(empty());
 const availableClients=computed(()=>clients.value.filter(client=>client.tenant_id===form.value.account_id));
 const canSave=computed(()=>!!form.value.account_id&&(form.value.role==='Administrador'||form.value.access_mode==='all'||form.value.client_ids.length>0));
 
-async function load(){const [usersResponse,rolesResponse,clientsResponse,accountsResponse]=await Promise.all([api.get('/users'),api.get('/users/roles'),api.get('/clients',{params:{per_page:100}}),api.get('/accounts',{params:{per_page:100}})]);users.value=usersResponse.data.data;roles.value=rolesResponse.data;clients.value=clientsResponse.data.data;accounts.value=accountsResponse.data.data;if(!form.value.account_id)form.value.account_id=auth.user?.tenant_id||accounts.value[0]?.id||''}
+async function load(){loading.value=true;error.value='';try{const [usersResponse,rolesResponse,clientsResponse,accountsResponse]=await Promise.all([api.get('/users'),api.get('/users/roles'),api.get('/clients',{params:{per_page:100}}),api.get('/accounts',{params:{per_page:100}})]);users.value=usersResponse.data.data;roles.value=rolesResponse.data;clients.value=clientsResponse.data.data;accounts.value=accountsResponse.data.data;if(!form.value.account_id)form.value.account_id=auth.user?.tenant_id||accounts.value[0]?.id||''}catch(e){error.value=messageOf(e)}finally{loading.value=false}}
 onMounted(load);
 watch(()=>form.value.account_id,()=>{form.value.client_ids=form.value.client_ids.filter((id:string)=>availableClients.value.some(client=>client.id===id))});
 function hasAllClients(user:any){return user.all_clients||user.roles?.some((role:any)=>role.name==='Administrador')}
@@ -24,8 +24,11 @@ async function save(){try{const payload={...form.value,all_clients:form.value.ac
   <section class="card">
     <div class="card-title"><div><h2>Usuários das empresas da plataforma</h2><p>Cada usuário pertence a uma empresa assinante e acessa todos ou apenas clientes auditados selecionados.</p></div></div>
     <div class="table-scroll"><table><thead><tr><th>Nome</th><th>E-mail</th><th v-if="auth.isPlatformAdmin">Empresa</th><th>Perfil</th><th>Clientes permitidos</th><th>Status</th><th></th></tr></thead><tbody>
-      <tr v-for="user in users" :key="user.id"><td>{{user.name}}</td><td>{{user.email}}</td><td v-if="auth.isPlatformAdmin">{{user.account?.trade_name||user.account?.legal_name}}</td><td>{{user.roles.map((role:any)=>role.name).join(', ')}}</td><td>{{hasAllClients(user)?'Todos os clientes':`${(user.clients||[]).length} cliente(s)`}}</td><td>{{user.active?'Ativo':'Inativo'}}</td><td><button @click="edit(user)">Editar</button></td></tr>
+      <tr v-if="loading"><td :colspan="auth.isPlatformAdmin?7:6">Carregando usuários...</td></tr>
+      <tr v-else-if="!users.length"><td :colspan="auth.isPlatformAdmin?7:6">Nenhum usuário encontrado.</td></tr>
+      <template v-else><tr v-for="user in users" :key="user.id"><td>{{user.name}}</td><td>{{user.email}}</td><td v-if="auth.isPlatformAdmin">{{user.account?.trade_name||user.account?.legal_name||'Master da plataforma'}}</td><td>{{user.roles.map((role:any)=>role.name).join(', ')}}</td><td>{{user.tenant_id?(hasAllClients(user)?'Todos os clientes':`${(user.clients||[]).length} cliente(s)`):'Todas as empresas e clientes'}}</td><td>{{user.active?'Ativo':'Inativo'}}</td><td><button v-if="user.tenant_id" @click="edit(user)">Editar</button><span v-else class="hint">Conta master</span></td></tr></template>
     </tbody></table></div>
+    <p v-if="error" class="error">{{error}}</p>
   </section>
   <form class="card form-grid one" @submit.prevent="save">
     <h2>{{editing?'Editar usuário':'Novo usuário'}}</h2>
