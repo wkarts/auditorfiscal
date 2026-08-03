@@ -11,13 +11,14 @@ from .cross_rules import apply_cross_document_rules
 from .reports.pdf_report import build_pdf
 from .reports.excel_report import build_excel
 from .danfe import build_danfe
+from .document_duplicates import document_identity,duplicate_finding
 from .settings import settings
 from .storage import ObjectStorage
 from .xml_parser import parse_event,parse_invoice,finding
 class AuditService:
     def __init__(self):self.storage=ObjectStorage()
     def run(self,payload:dict):
-        catalog=CatalogSnapshot(payload['catalog_version_id']);documents=[];findings=[];events=[]
+        catalog=CatalogSnapshot(payload['catalog_version_id']);documents=[];findings=[];events=[];document_identities={};identity_occurrences={};duplicate_occurrences=0
         with TemporaryDirectory(prefix='auditor-') as temp:
             root=Path(temp);xml_candidates=[];pdf_candidates=[]
             for source in payload['source_files']:
@@ -35,6 +36,13 @@ class AuditService:
                     if event:events.append(event);continue
                     storage_path=f"batches/{payload['batch_id']}/xml/{tmp_ref}.xml"
                     doc,doc_findings=parse_invoice(data,source_id,storage_path,catalog,payload['company']['tax_id'])
+                    identity=document_identity(doc)
+                    if identity and identity in document_identities:
+                        duplicate_occurrences+=1
+                        identity_occurrences[identity]+=1
+                        findings.append(duplicate_finding(document_identities[identity],doc,identity,identity_occurrences[identity]))
+                        continue
+                    if identity:document_identities[identity]=doc;identity_occurrences[identity]=1
                     storage_path=f"batches/{payload['batch_id']}/xml/{doc.get('access_key') or tmp_ref}.xml";doc['xml_storage_path']=storage_path;self.storage.put_bytes(data,storage_path)
                     documents.append(doc);findings.extend(doc_findings)
                 except Exception as exc:
@@ -67,6 +75,7 @@ class AuditService:
                 if d.get('access_key') in event_map:d['status']='cancelled';d['normalized']['cancellation_event']=event_map[d['access_key']]
             findings.extend(apply_cross_document_rules([d for d in documents if d['status']!='cancelled']))
             summary=self._summary(documents,findings)
+            summary['received_document_count']=len(documents)+duplicate_occurrences;summary['duplicate_occurrence_count']=duplicate_occurrences
             period={'start':payload.get('period_start'),'end':payload.get('period_end')};catalog_meta={'id':payload['catalog_version_id'],'version':payload.get('catalog_version'),'sha256':payload.get('catalog_sha256')}
             reports_dir=root/'reports';reports_dir.mkdir();pdf=reports_dir/'relatorio.pdf';xlsx=reports_dir/'relatorio.xlsx'
             build_pdf(pdf,payload['company'],period,summary,documents,findings,catalog_meta,settings.report_template_version)
