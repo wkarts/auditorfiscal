@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ApplicationLog;
 use App\Services\CompanyAccess;
+use App\Services\TenantAccess;
 use Illuminate\Http\Request;
 
 class ApplicationLogController extends Controller
@@ -41,7 +42,7 @@ class ApplicationLogController extends Controller
             'per_page' => 'nullable|integer|min:1|max:200',
         ]);
         $query = ApplicationLog::query();
-        if (! $request->user()->hasRole('Administrador')) $query->whereIn('company_id', CompanyAccess::ids($request->user()));
+        if (! TenantAccess::isPlatformAdmin($request->user())) $query->whereIn('company_id', CompanyAccess::ids($request->user()));
         foreach (['level', 'component', 'event', 'analysis_batch_id'] as $field) if (! empty($data[$field])) $query->where($field, $data[$field]);
         if (! empty($data['search'])) {
             $search = '%'.mb_strtolower($data['search']).'%';
@@ -52,7 +53,7 @@ class ApplicationLogController extends Controller
 
     private function ensureAccess(Request $request, ApplicationLog $log): void
     {
-        if ($request->user()->hasRole('Administrador')) return;
+        if (TenantAccess::isPlatformAdmin($request->user())) return;
         abort_unless($log->company_id && CompanyAccess::ids($request->user())->contains($log->company_id), 404);
     }
 }

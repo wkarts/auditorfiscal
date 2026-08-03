@@ -13,8 +13,8 @@ async function exit(){await auth.logout();router.push('/login')}
       <div class="brand"><div class="brand-mark">AF</div><div><strong>Auditor Fiscal</strong><small>IBS/CBS</small></div></div>
       <nav>
         <RouterLink to="/">Visão geral</RouterLink><RouterLink to="/analises">Auditorias</RouterLink><RouterLink to="/analises/nova">Nova auditoria</RouterLink>
-        <RouterLink to="/catalogos">NCM × ClassTrib</RouterLink><RouterLink v-if="auth.isAdmin" to="/tenants">Tenants</RouterLink>
-        <RouterLink v-if="auth.isAdmin" to="/empresas">Empresas</RouterLink><RouterLink v-if="auth.isAdmin" to="/logs">Logs da aplicação</RouterLink><RouterLink v-if="auth.isAdmin" to="/usuarios">Usuários</RouterLink>
+        <RouterLink to="/catalogos">NCM × ClassTrib</RouterLink><RouterLink v-if="auth.isPlatformAdmin" to="/contas">Empresas da plataforma</RouterLink>
+        <RouterLink v-if="auth.isAdmin" to="/clientes">Clientes auditados</RouterLink><RouterLink v-if="auth.isAdmin" to="/logs">Logs da aplicação</RouterLink><RouterLink v-if="auth.isAdmin" to="/usuarios">Usuários</RouterLink>
       </nav>
       <div class="sidebar-footer"><span>{{auth.user?.name}}</span><button class="link" @click="exit">Sair</button></div>
     </aside>

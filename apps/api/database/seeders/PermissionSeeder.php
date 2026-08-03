@@ -19,6 +19,10 @@ class PermissionSeeder extends Seeder
 
         $permissions = [
             'users.manage',
+            'accounts.view',
+            'accounts.manage',
+            'clients.view',
+            'clients.manage',
             'tenants.view',
             'tenants.manage',
             'companies.manage',
@@ -42,6 +46,7 @@ class PermissionSeeder extends Seeder
 
         $auditor = Role::firstOrCreate(['name' => 'Auditor Fiscal', 'guard_name' => 'web']);
         $auditor->syncPermissions([
+            'clients.view',
             'tenants.view',
             'catalogs.view',
             'analyses.view',
@@ -51,7 +56,7 @@ class PermissionSeeder extends Seeder
         ]);
 
         $viewer = Role::firstOrCreate(['name' => 'Consulta', 'guard_name' => 'web']);
-        $viewer->syncPermissions(['tenants.view', 'catalogs.view', 'analyses.view', 'reports.download']);
+        $viewer->syncPermissions(['clients.view', 'tenants.view', 'catalogs.view', 'analyses.view', 'reports.download']);
 
         $email = (string) env('ADMIN_EMAIL');
         $password = (string) env('ADMIN_PASSWORD');
@@ -62,22 +67,33 @@ class PermissionSeeder extends Seeder
         $user = User::firstOrNew(['email' => $email]);
         $user->name = 'Administrador';
         $user->active = true;
+        $user->all_clients = true;
+        $user->tenant_id = null;
         if (! $user->exists || ! Hash::check($password, (string) $user->password)) {
             $user->password = Hash::make($password);
         }
         $user->save();
         $user->syncRoles([$admin]);
 
-        $tenant = \App\Models\Tenant::firstOrCreate(
-            ['tax_id' => '99999999000191'],
-            ['legal_name' => 'Tenant Sintético de Demonstração', 'trade_name' => 'Demonstração', 'active' => true],
-        );
-        $tenant->users()->syncWithoutDetaching([$user->id]);
-        $company = Company::firstOrCreate(
-            ['tax_id' => '99999999000191'],
-            ['tenant_id' => $tenant->id, 'legal_name' => 'Empresa Sintética de Demonstração', 'trade_name' => 'Demonstração', 'active' => true],
-        );
+        $tenant = \App\Models\Tenant::query()->where('settings->seed_key', 'demo-account')->first()
+            ?? \App\Models\Tenant::query()->where('tax_id', '99999999000191')->first()
+            ?? \App\Models\Tenant::create([
+                'tax_id' => '99999999000191',
+                'legal_name' => 'Conta Sintética de Demonstração',
+                'trade_name' => 'Empresa modelo',
+                'active' => true,
+            ]);
+        $tenant->update(['settings' => array_merge($tenant->settings ?? [], ['seed_key' => 'demo-account'])]);
+        $company = Company::query()->where('settings->seed_key', 'demo-client')->first()
+            ?? Company::query()->where('tax_id', '99999999000191')->first()
+            ?? Company::create([
+                'tenant_id' => $tenant->id,
+                'tax_id' => '99999999000191',
+                'legal_name' => 'Cliente Sintético de Demonstração',
+                'trade_name' => 'Cliente modelo',
+                'active' => true,
+            ]);
+        $company->update(['settings' => array_merge($company->settings ?? [], ['seed_key' => 'demo-client'])]);
         if (! $company->tenant_id) $company->update(['tenant_id' => $tenant->id]);
-        $company->users()->syncWithoutDetaching([$user->id => ['is_default' => true]]);
     }
 }

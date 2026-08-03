@@ -10,6 +10,7 @@ from .catalog import CatalogSnapshot
 from .cross_rules import apply_cross_document_rules
 from .reports.pdf_report import build_pdf
 from .reports.excel_report import build_excel
+from .danfe import build_danfe
 from .settings import settings
 from .storage import ObjectStorage
 from .xml_parser import parse_event,parse_invoice,finding
@@ -39,15 +40,28 @@ class AuditService:
                 except Exception as exc:
                     findings.append(finding('XML-PARSE-001','critical','document','XML inválido ou não suportado',str(exc),tmp_ref,evidence={'file':xml_path.name,'sha256':tmp_ref},impact='Documento não auditado.',action='Corrigir ou substituir o XML de origem.'))
             documents_by_key={document.get('access_key'):document for document in documents if document.get('access_key')}
-            attached_danfe=set()
-            for pdf_path,_source_id in pdf_candidates:
+            attached_danfe=set();documents_by_source={}
+            for document in documents:documents_by_source.setdefault(document.get('source_file_id'),[]).append(document)
+            for pdf_path,source_id in pdf_candidates:
                 match=re.search(r'(?<!\d)(\d{44})(?!\d)',pdf_path.name)
-                if not match or match.group(1) not in documents_by_key or match.group(1) in attached_danfe:continue
+                access_key=match.group(1) if match and match.group(1) in documents_by_key else None
+                source_documents=documents_by_source.get(source_id,[])
+                if not access_key and len(source_documents)==1:access_key=source_documents[0].get('access_key')
+                if not access_key and len(documents)==1 and len(pdf_candidates)==1:access_key=documents[0].get('access_key')
+                if not access_key or access_key not in documents_by_key or access_key in attached_danfe:continue
                 data=pdf_path.read_bytes()
                 if not data.startswith(b'%PDF-'):continue
-                access_key=match.group(1);danfe_path=f"batches/{payload['batch_id']}/danfe/{access_key}.pdf"
+                danfe_path=f"batches/{payload['batch_id']}/danfe/{access_key}.pdf"
                 self.storage.put_bytes(data,danfe_path,content_type='application/pdf')
-                documents_by_key[access_key]['danfe_storage_path']=danfe_path;attached_danfe.add(access_key)
+                documents_by_key[access_key]['danfe_storage_path']=danfe_path;documents_by_key[access_key]['normalized']['danfe_source']='imported';attached_danfe.add(access_key)
+            generated_dir=root/'danfe-generated';generated_dir.mkdir()
+            for document in documents:
+                if document.get('danfe_storage_path'):continue
+                reference=document.get('access_key') or document.get('document_ref')
+                generated=generated_dir/f'{reference}.pdf';build_danfe(generated,document)
+                danfe_path=f"batches/{payload['batch_id']}/danfe/{reference}.pdf"
+                self.storage.upload(generated,danfe_path,'application/pdf')
+                document['danfe_storage_path']=danfe_path;document['normalized']['danfe_source']='generated_from_xml'
             event_map={e['access_key']:e for e in events if e.get('event_type')=='110111' and e.get('status_code') in {'135','136','155'}}
             for d in documents:
                 if d.get('access_key') in event_map:d['status']='cancelled';d['normalized']['cancellation_event']=event_map[d['access_key']]

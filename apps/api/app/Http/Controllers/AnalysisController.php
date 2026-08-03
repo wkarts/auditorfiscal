@@ -56,7 +56,7 @@ class AnalysisController extends Controller
             'files.*' => "file|max:$max|mimes:xml,zip,pdf",
         ]);
         $company = CompanyAccess::ensure($request->user(), $data['company_id']);
-        abort_if(! $company->active || ! $company->tenant?->active, 422, 'A empresa ou o tenant está inativo para novas auditorias.');
+        abort_if(! $company->active || ! $company->tenant?->active, 422, 'O cliente auditado ou a empresa da plataforma está inativo para novas auditorias.');
         $catalog = $data['catalog_version_id']
             ? FiscalCatalogVersion::whereKey($data['catalog_version_id'])->where('status', 'published')->firstOrFail()
             : FiscalCatalogVersion::published()->latest('published_at')->firstOrFail();

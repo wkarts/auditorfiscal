@@ -17,5 +17,8 @@ class Tenant extends Model
     }
 
     public function companies() { return $this->hasMany(Company::class); }
-    public function users() { return $this->belongsToMany(User::class)->withTimestamps(); }
+    public function users() { return $this->hasMany(User::class); }
+
+    /** @deprecated Relação anterior à vinculação singular de usuários por conta. */
+    public function legacyUsers() { return $this->belongsToMany(User::class, 'tenant_user')->withTimestamps(); }
 }
