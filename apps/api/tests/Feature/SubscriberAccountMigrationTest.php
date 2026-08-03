@@ -29,7 +29,7 @@ class SubscriberAccountMigrationTest extends TestCase
     public function test_migration_assigns_legacy_user_to_the_clients_account_and_is_reversible(): void
     {
         DB::table('tenants')->insert(['id' => '11111111-1111-4111-8111-111111111111']);
-        DB::table('users')->insert(['id' => 1, 'email' => 'user@example.test']);
+        DB::table('users')->insert(['id' => 1, 'email' => 'user@example.com']);
         DB::table('companies')->insert(['id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'tenant_id' => '11111111-1111-4111-8111-111111111111']);
         DB::table('company_user')->insert(['company_id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'user_id' => 1, 'is_default' => true, 'created_at' => now(), 'updated_at' => now()]);
         $migration = require database_path('migrations/2026_08_03_050000_assign_users_to_subscriber_accounts.php');
