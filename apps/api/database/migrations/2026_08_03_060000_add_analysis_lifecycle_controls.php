@@ -24,6 +24,7 @@ return new class extends Migration
     {
         Schema::table('analysis_batches', function (Blueprint $table): void {
             $table->dropIndex('analysis_batches_company_deleted_created_idx');
+            $table->dropIndex(['cancel_requested_at']);
             $table->dropForeign(['cancelled_by']);
             $table->dropForeign(['deleted_by']);
             $table->dropColumn([
