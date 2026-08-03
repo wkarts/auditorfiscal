@@ -28,6 +28,7 @@ class PermissionSeeder extends Seeder
             'analyses.resolve',
             'reports.download',
             'audit.view',
+            'logs.view',
         ];
 
         foreach ($permissions as $permission) {

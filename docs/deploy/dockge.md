@@ -104,10 +104,29 @@ os diretórios manualmente; para mover dados, use os procedimentos em
 
 ## Atualização e rollback
 
-Antes da atualização automática, faça backup e execute
-`docker compose pull && docker compose up -d --wait --remove-orphans`. O último
+Antes da atualização, faça backup e atualize também o `compose.yaml` da pasta da
+stack com a versão da release. Alterar apenas `.env`, usar `APP_IMAGE_TAG=latest`
+ou executar `pull` não corrige um contrato Compose antigo. Em especial, confirme
+que o engine recebe `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` e
+`DB_PASSWORD` separadamente e que seu healthcheck usa `/health/ready`.
+
+Depois execute `docker compose pull && docker compose up -d --wait --remove-orphans`.
+O último
 argumento remove o antigo container órfão do proxy, sem tocar nos bind mounts de
 dados. Para uma janela controlada,
 fixe temporariamente `APP_IMAGE_TAG` na versão homologada. Em um rollback, restaure
 o backup quando houver migration incompatível, use a tag anterior imutável e
 repita o comando; depois da recuperação, decida quando voltar para `latest`.
+
+Verifique o contrato efetivamente aplicado, sem exibir segredos:
+
+```bash
+docker compose config --services
+docker compose images
+docker compose ps
+docker compose logs auditor-fiscal-app-init
+```
+
+No contrato Dockge, `DEPLOY_MODE=source` não compila o repositório: essa stack
+sempre consome as imagens definidas por `IMAGE_REGISTRY`, `IMAGE_NAMESPACE` e
+`APP_IMAGE_TAG`.
