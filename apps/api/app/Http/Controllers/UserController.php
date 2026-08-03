@@ -9,6 +9,7 @@ use App\Services\TenantAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
 
@@ -20,7 +21,7 @@ class UserController extends Controller
             'roles',
             'account:id,legal_name,trade_name,tax_id,active',
             'clients:id,tenant_id,legal_name,trade_name,tax_id,active',
-        )->whereNotNull('tenant_id');
+        );
 
         if (! TenantAccess::isPlatformAdmin($request->user())) {
             $query->where('tenant_id', $request->user()->tenant_id ?? '__sem-conta__');
@@ -78,10 +79,14 @@ class UserController extends Controller
     private function rules(?int $userId = null, bool $partial = false): array
     {
         $required = $partial ? 'sometimes' : 'required';
+        $uniqueEmail = Rule::unique('users', 'email');
+        if ($userId !== null) {
+            $uniqueEmail->ignore($userId);
+        }
 
         return [
             'name' => "$required|string|max:255",
-            'email' => "$required|email|max:255|unique:users,email,$userId",
+            'email' => [$required, 'email', 'max:255', $uniqueEmail],
             'password' => $partial ? 'nullable|string|min:12' : 'required|string|min:12',
             'role' => "$required|exists:roles,name",
             'account_id' => 'sometimes|uuid|exists:tenants,id',
