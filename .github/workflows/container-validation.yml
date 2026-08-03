@@ -45,6 +45,7 @@ jobs:
           GHCR_REGISTRY=ghcr.io
           GHCR_NAMESPACE=wkarts
           AUDITOR_IMAGE_TAG=pr
+          LOCAL_API_IMAGE=auditor-fiscal/api:pr
           WEB_BIND_HOST=127.0.0.1
           WEB_PUBLISHED_PORT=18081
           AUDITOR_DOMAIN=auditor.wwsoftwares.com.br
@@ -67,7 +68,7 @@ jobs:
           RABBITMQ_VHOST=/
           FILESYSTEM_DISK=s3
           AWS_ACCESS_KEY_ID=auditor
-          AWS_SECRET_ACCESS_KEY=${TEST_PASSWORD}
+          AWS_SECRET_ACCESS_KEY=
           AWS_DEFAULT_REGION=us-east-1
           AWS_BUCKET=auditor-fiscal-ci
           AWS_ENDPOINT=http://auditor-fiscal-minio:9000
@@ -88,7 +89,31 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Validate resolved Compose configuration
-        run: docker compose config --quiet
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose config --quiet
+          docker compose config --format json | python3 -c '
+          import json, sys
+
+          expected = "auditor-fiscal/api:pr"
+          services = json.load(sys.stdin)["services"]
+          api_services = (
+              "auditor-fiscal-app-init",
+              "auditor-fiscal-api",
+              "auditor-fiscal-scheduler",
+              "auditor-fiscal-worker",
+          )
+          invalid = {
+              service: services[service].get("image")
+              for service in api_services
+              if services[service].get("image") != expected
+          }
+          if invalid:
+              details = ", ".join(f"{service}={image!r}" for service, image in invalid.items())
+              raise SystemExit(f"Serviços derivados da API devem usar {expected}: {details}")
+          print(f"Imagem uniforme confirmada em {len(api_services)} serviços: {expected}")
+          '
 
       - name: Build reusable API base with GHA cache
         run: |
@@ -173,10 +198,32 @@ jobs:
           # O segundo `up` pode recriar scheduler/worker enquanto os serviços
           # one-shot são reavaliados. Aguarda três leituras consecutivas estáveis
           # para não confundir essa transição válida com um restart loop.
+          compose_services_by_status() {
+            local status="$1"
+
+            docker compose ps --status "$status" --services \
+              | sed '/^[[:space:]]*$/d'
+          }
+
+          print_stability_state() {
+            printf 'stable_checks=%d running_services=%d restarting_services=%d missing_services=%d\n' \
+              "$stable_checks" "${#running_services[@]}" "${#restarting_services[@]}" "${#missing_services[@]}"
+            printf 'running_services:'
+            (( ${#running_services[@]} == 0 )) || printf ' %q' "${running_services[@]}"
+            printf '\nmissing_services:'
+            (( ${#missing_services[@]} == 0 )) || printf ' %q' "${missing_services[@]}"
+            printf '\nrestarting_services:'
+            (( ${#restarting_services[@]} == 0 )) || printf ' %q' "${restarting_services[@]}"
+            printf '\n'
+          }
+
           stable_checks=0
-          for attempt in $(seq 1 30); do
-            mapfile -t running_services < <(docker compose ps --status running --services)
-            mapfile -t restarting_services < <(docker compose ps --status restarting --services)
+          stabilization_timeout=60
+          stabilization_deadline=$((SECONDS + stabilization_timeout))
+          previous_state=''
+          while (( SECONDS < stabilization_deadline )); do
+            mapfile -t running_services < <(compose_services_by_status running)
+            mapfile -t restarting_services < <(compose_services_by_status restarting)
             missing_services=()
             for service in "${permanent_services[@]}"; do
               if ! printf '%s\n' "${running_services[@]}" | grep -Fxq "$service"; then
@@ -186,21 +233,34 @@ jobs:
 
             if (( ${#missing_services[@]} == 0 && ${#restarting_services[@]} == 0 )); then
               stable_checks=$((stable_checks + 1))
-              if (( stable_checks >= 3 )); then
-                break
-              fi
             else
               stable_checks=0
             fi
 
-            if (( attempt == 30 )); then
-              printf 'Serviços ausentes após estabilização: %s\n' "${missing_services[*]:-nenhum}" >&2
-              printf 'Serviços reiniciando: %s\n' "${restarting_services[*]:-nenhum}" >&2
-              docker compose ps >&2
-              exit 1
+            current_state="${stable_checks}|${running_services[*]}|${restarting_services[*]}|${missing_services[*]}"
+            if [[ "$current_state" != "$previous_state" ]]; then
+              print_stability_state
+              previous_state="$current_state"
             fi
+
+            if (( stable_checks >= 3 )); then
+              break
+            fi
+
             sleep 2
           done
+
+          if (( stable_checks < 3 )); then
+            printf 'A stack não permaneceu estável por três leituras em %ss.\n' "$stabilization_timeout" >&2
+            printf 'Serviços ausentes após estabilização: %s\n' "${missing_services[*]:-nenhum}" >&2
+            printf 'Serviços reiniciando: %s\n' "${restarting_services[*]:-nenhum}" >&2
+            print_stability_state >&2
+            docker compose ps --all >&2
+            exit 1
+          fi
+
+          printf 'Stack estável: missing_services=%d restarting_services=%d stable_checks=%d\n' \
+            "${#missing_services[@]}" "${#restarting_services[@]}" "$stable_checks"
 
           for service in "${permanent_services[@]}"; do
             container_id="$(docker compose ps -q "$service")"
@@ -242,6 +302,41 @@ jobs:
             -H "Authorization: Bearer $TOKEN" \
             http://127.0.0.1:18080/api/v1/catalogs \
             | python3 -c 'import json,sys; data=json.load(sys.stdin); assert len(data["data"]) >= 1'
+
+          COMPANY_ID="$(curl --fail --silent --show-error -H "Authorization: Bearer $TOKEN" \
+            'http://127.0.0.1:18080/api/v1/companies?per_page=1' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])')"
+          CATALOG_ID="$(curl --fail --silent --show-error -H "Authorization: Bearer $TOKEN" \
+            http://127.0.0.1:18080/api/v1/catalogs \
+            | python3 -c 'import json,sys; print(next(item["id"] for item in json.load(sys.stdin)["data"] if item["status"] == "published"))')"
+          ANALYSIS_ID="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $TOKEN" \
+            -F "company_id=$COMPANY_ID" \
+            -F "catalog_version_id=$CATALOG_ID" \
+            -F 'name=Validação Auditor Fiscal' \
+            -F 'files[]=@examples/xml/NFe-demo-saida.xml;type=application/xml' \
+            http://127.0.0.1:18080/api/v1/analyses \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["status"] == "queued"; assert len(data["source_files"]) == 1; print(data["id"])')"
+
+          for attempt in $(seq 1 90); do
+            ANALYSIS_RESPONSE="$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer $TOKEN" \
+              "http://127.0.0.1:18080/api/v1/analyses/$ANALYSIS_ID")"
+            ANALYSIS_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<< "$ANALYSIS_RESPONSE")"
+            if [[ "$ANALYSIS_STATUS" == completed ]]; then
+              python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["document_count"] >= 1; assert data["reports"]' <<< "$ANALYSIS_RESPONSE"
+              break
+            fi
+            if [[ "$ANALYSIS_STATUS" == failed ]]; then
+              printf 'Auditoria falhou: %s\n' "$ANALYSIS_RESPONSE" >&2
+              exit 1
+            fi
+            if (( attempt == 90 )); then
+              printf 'Timeout aguardando auditoria: %s\n' "$ANALYSIS_RESPONSE" >&2
+              exit 1
+            fi
+            sleep 2
+          done
 
       - name: Verify image runtime contracts
         run: |

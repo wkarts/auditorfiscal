@@ -49,13 +49,16 @@ mkdir -p api_storage postgres_data redis_data rabbitmq_data minio_data
 
 Na interface, use **Scan Stacks Folder**, abra a pasta criada e clique em
 **Deploy**. O serviço one-shot `auditor-fiscal-app-init` executa automaticamente
-migrations, seed do administrador e declara as filas `high`, `default` e `reports`
-antes da API iniciar. O seed atualiza a senha do administrador somente quando o
+migrations, seed do administrador, declara as filas `high`, `default` e `reports`
+e comprova escrita/leitura no MinIO antes da API iniciar. Quando
+`AWS_SECRET_ACCESS_KEY` estiver vazia, API e engine reutilizam automaticamente
+`MINIO_ROOT_PASSWORD`; não é necessário duplicar o segredo. O seed atualiza a senha do administrador somente quando o
 valor de `ADMIN_PASSWORD` mudou. Para conferir ou recuperar manualmente:
 
 ```bash
 docker compose logs auditor-fiscal-app-init
 docker compose run --rm auditor-fiscal-app-init
+docker compose run --rm --no-deps auditor-fiscal-api php artisan storage:verify
 docker compose exec auditor-fiscal-rabbitmq rabbitmqctl list_queues name
 ```
 

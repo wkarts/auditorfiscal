@@ -150,14 +150,15 @@ jobs:
           python3 scripts/scan-repository-data.py
       - name: Prepare validation environment
         run: |
+          VALIDATION_SECRET="$(openssl rand -hex 24)"
           cp .env.example .env
-          sed -i 's|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=release-gate|' .env
-          sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=release-gate|' .env
-          sed -i 's|^RABBITMQ_PASSWORD=.*|RABBITMQ_PASSWORD=release-gate|' .env
-          sed -i 's|^AWS_SECRET_ACCESS_KEY=.*|AWS_SECRET_ACCESS_KEY=release-gate|' .env
-          sed -i 's|^FISCAL_ENGINE_TOKEN=.*|FISCAL_ENGINE_TOKEN=release-gate|' .env
-          sed -i 's|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=release-gate|' .env
-          sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=release-gate|' .env
+          sed -i "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i "s|^RABBITMQ_PASSWORD=.*|RABBITMQ_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i 's|^AWS_SECRET_ACCESS_KEY=.*|AWS_SECRET_ACCESS_KEY=|' .env
+          sed -i "s|^FISCAL_ENGINE_TOKEN=.*|FISCAL_ENGINE_TOKEN=${VALIDATION_SECRET}|" .env
+          sed -i "s|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i "s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=${VALIDATION_SECRET}|" .env
           sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=${{ needs.contract.outputs.namespace }}|' .env
           sed -i 's|^AUDITOR_IMAGE_TAG=.*|AUDITOR_IMAGE_TAG=${{ needs.contract.outputs.version }}|' .env
           cp .env deploy/dockge/.env
@@ -348,7 +349,7 @@ jobs:
           RABBITMQ_VHOST=/
           FILESYSTEM_DISK=s3
           AWS_ACCESS_KEY_ID=auditor
-          AWS_SECRET_ACCESS_KEY=${TEST_PASSWORD}
+          AWS_SECRET_ACCESS_KEY=
           AWS_DEFAULT_REGION=us-east-1
           AWS_BUCKET=auditor-fiscal-release-ci
           AWS_ENDPOINT=http://auditor-fiscal-minio:9000
@@ -396,11 +397,11 @@ jobs:
       - name: Initialize object storage
         run: docker compose run --rm --no-deps auditor-fiscal-minio-init
 
-      - name: Apply migrations and seeds from published API image
-        run: docker compose run --rm --no-deps auditor-fiscal-api php artisan migrate:fresh --seed --force
+      - name: Initialize database, queues and object storage contract
+        run: docker compose run --rm --no-deps auditor-fiscal-app-init
 
       - name: Start published application images
-        run: docker compose up -d --no-build auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine
+        run: docker compose up -d --no-build auditor-fiscal-api auditor-fiscal-web auditor-fiscal-engine auditor-fiscal-scheduler auditor-fiscal-worker
 
       - name: Verify release health and authentication
         shell: bash
@@ -436,6 +437,20 @@ jobs:
             -H "Authorization: Bearer $TOKEN" \
             http://127.0.0.1:18080/api/v1/catalogs \
             | python3 -c 'import json,sys; assert len(json.load(sys.stdin)["data"]) >= 1'
+          COMPANY_ID="$(curl --fail --silent --show-error -H "Authorization: Bearer $TOKEN" \
+            'http://127.0.0.1:18080/api/v1/companies?per_page=1' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])')"
+          CATALOG_ID="$(curl --fail --silent --show-error -H "Authorization: Bearer $TOKEN" \
+            http://127.0.0.1:18080/api/v1/catalogs \
+            | python3 -c 'import json,sys; print(next(item["id"] for item in json.load(sys.stdin)["data"] if item["status"] == "published"))')"
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $TOKEN" \
+            -F "company_id=$COMPANY_ID" \
+            -F "catalog_version_id=$CATALOG_ID" \
+            -F 'name=Validação Auditor Fiscal' \
+            -F 'files[]=@examples/xml/NFe-demo-saida.xml;type=application/xml' \
+            http://127.0.0.1:18080/api/v1/analyses \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["status"] == "queued"; assert len(data["source_files"]) == 1'
 
       - name: Print service logs on failure
         if: failure()

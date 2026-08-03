@@ -190,14 +190,15 @@ jobs:
 
       - name: Prepare non-secret validation environment
         run: |
+          VALIDATION_SECRET="$(openssl rand -hex 24)"
           cp .env.example .env
-          sed -i 's|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=ci-only|' .env
-          sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=ci-only|' .env
-          sed -i 's|^RABBITMQ_PASSWORD=.*|RABBITMQ_PASSWORD=ci-only|' .env
-          sed -i 's|^AWS_SECRET_ACCESS_KEY=.*|AWS_SECRET_ACCESS_KEY=ci-only|' .env
-          sed -i 's|^FISCAL_ENGINE_TOKEN=.*|FISCAL_ENGINE_TOKEN=ci-only|' .env
-          sed -i 's|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=ci-only|' .env
-          sed -i 's|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=ci-only|' .env
+          sed -i "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i "s|^RABBITMQ_PASSWORD=.*|RABBITMQ_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i 's|^AWS_SECRET_ACCESS_KEY=.*|AWS_SECRET_ACCESS_KEY=|' .env
+          sed -i "s|^FISCAL_ENGINE_TOKEN=.*|FISCAL_ENGINE_TOKEN=${VALIDATION_SECRET}|" .env
+          sed -i "s|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=${VALIDATION_SECRET}|" .env
+          sed -i "s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=${VALIDATION_SECRET}|" .env
           sed -i 's|^GHCR_NAMESPACE=.*|GHCR_NAMESPACE=wkarts|' .env
           cp .env deploy/dockge/.env
 

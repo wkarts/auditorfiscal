@@ -30,6 +30,7 @@ services:
       auditor-fiscal-postgres: {condition: service_healthy}
       auditor-fiscal-redis: {condition: service_healthy}
       auditor-fiscal-rabbitmq: {condition: service_healthy}
+      auditor-fiscal-minio-init: {condition: service_completed_successfully}
     command:
       - /bin/sh
       - -ec
@@ -37,6 +38,7 @@ services:
         php artisan migrate --force
         php artisan db:seed --force
         php artisan rabbitmq:declare-queues
+        php artisan storage:verify
     logging: *logging
 
   auditor-fiscal-api:

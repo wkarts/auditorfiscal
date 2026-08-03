@@ -61,6 +61,17 @@ curl --fail http://127.0.0.1:8080/health
 curl --fail http://127.0.0.1:8080/api/v1/health/live
 ```
 
+Antes de liberar uploads, confirme o contrato do armazenamento. O comando cria,
+lê e remove um objeto temporário; ele não altera XMLs ou relatórios existentes:
+
+```bash
+docker compose run --rm --no-deps auditor-fiscal-api php artisan storage:verify
+```
+
+Se `AWS_ACCESS_KEY_ID` ou `AWS_SECRET_ACCESS_KEY` estiverem vazias, a aplicação
+reutiliza respectivamente `MINIO_ROOT_USER` e `MINIO_ROOT_PASSWORD`. Para AWS S3
+externo, configure as variáveis AWS explicitamente via secret manager.
+
 `--remove-orphans` remove somente o container do antigo proxy que deixou de
 pertencer ao projeto; não remove bind mounts nem dados de PostgreSQL, Redis,
 RabbitMQ ou MinIO. Os serviços `storage-init`, `app-init` e `minio-init` são

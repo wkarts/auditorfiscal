@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.7] - 2026-08-02
+
+### Alterado
+
+- Versão patch reservada automaticamente pelo workflow para evitar reutilização de tag.
+
 ## [1.1.6] - 2026-08-02
 
 ### Alterado
@@ -14,6 +20,13 @@
 
 ### Corrigido
 
+- Upload de auditorias passa a reutilizar as credenciais MinIO quando as
+  credenciais AWS estiverem vazias, com preflight de leitura/escrita antes da API.
+- Falhas de upload compensam objetos e lote parcial, retornando erro operacional
+  explícito em vez de manter auditorias órfãs.
+- Smoke test de containers agora envia um XML e aguarda a auditoria e os
+  relatórios, cobrindo API, MinIO, RabbitMQ, worker e engine ponta a ponta.
+- AG Grid usa explicitamente o tema legado compatível com os arquivos CSS atuais.
 - Removido o proxy público redundante e seu bind mount, eliminando a falha de tipo
   arquivo/diretório que interrompia implantações gerenciadas pelo Dockge.
 - Porta do frontend padronizada em `WEB_BIND_HOST`/`WEB_PUBLISHED_PORT`, restrita

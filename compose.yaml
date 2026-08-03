@@ -36,6 +36,8 @@ services:
         condition: service_healthy
       auditor-fiscal-rabbitmq:
         condition: service_healthy
+      auditor-fiscal-minio-init:
+        condition: service_completed_successfully
     command:
       - /bin/sh
       - -ec
@@ -43,6 +45,7 @@ services:
         php artisan migrate --force
         php artisan db:seed --force
         php artisan rabbitmq:declare-queues
+        php artisan storage:verify
 
   auditor-fiscal-api:
     image: *api_image
