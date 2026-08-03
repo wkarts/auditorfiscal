@@ -29,6 +29,26 @@ class AnalysisFailure
         };
     }
 
+    public static function isRetryable(Throwable $exception): bool
+    {
+        if ($exception instanceof QueryException) {
+            $sqlState = self::databaseErrorInfo($exception)[0] ?? null;
+
+            return ! is_string($sqlState) || (! str_starts_with($sqlState, '22') && ! str_starts_with($sqlState, '23'));
+        }
+        if ($exception instanceof RequestException) {
+            return $exception->response->serverError() || in_array($exception->response->status(), [408, 429], true);
+        }
+        if ($exception instanceof HttpExceptionInterface) {
+            return $exception->getStatusCode() >= 500 || in_array($exception->getStatusCode(), [408, 429], true);
+        }
+
+        return ! ($exception instanceof ValidationException
+            || $exception instanceof AuthenticationException
+            || $exception instanceof AuthorizationException
+            || $exception instanceof ModelNotFoundException);
+    }
+
     public static function from(Throwable $exception, ?int $attempt = null): array
     {
         $incidentId = (string) Str::uuid();
@@ -38,6 +58,7 @@ class AnalysisFailure
         $responseBody = null;
         $engineIncidentId = null;
         $engineTechnicalMessage = null;
+        $databaseTechnicalMessage = null;
 
         if ($exception instanceof ConnectionException) {
             $code = 'FISCAL_ENGINE_UNAVAILABLE';
@@ -61,6 +82,14 @@ class AnalysisFailure
         } elseif ($exception instanceof QueryException) {
             $code = 'DATABASE_ERROR';
             $message = 'O processamento falhou ao acessar o banco de dados.';
+            $errorInfo = self::databaseErrorInfo($exception);
+            $sqlState = $errorInfo[0] ?? null;
+            $driverCode = $errorInfo[1] ?? null;
+            $databaseTechnicalMessage = implode(' · ', array_filter([
+                'Falha de banco de dados sem exposição do comando SQL ou dos parâmetros.',
+                $sqlState ? 'SQLSTATE '.ApplicationLogger::sanitizeMessage((string) $sqlState) : null,
+                $driverCode ? 'driver '.ApplicationLogger::sanitizeMessage((string) $driverCode) : null,
+            ]));
         } elseif ($exception instanceof HttpExceptionInterface) {
             $httpStatus = $exception->getStatusCode();
             $code = 'HTTP_'.$httpStatus;
@@ -75,7 +104,7 @@ class AnalysisFailure
         return array_filter([
             'code' => $code,
             'message' => ApplicationLogger::sanitizeMessage($message),
-            'technical_message' => $engineTechnicalMessage ?: ApplicationLogger::sanitizeMessage($exception->getMessage()),
+            'technical_message' => $engineTechnicalMessage ?: $databaseTechnicalMessage ?: ApplicationLogger::sanitizeMessage($exception->getMessage()),
             'exception' => $exception::class,
             'http_status' => $httpStatus,
             'response_body' => $responseBody ?: null,
@@ -84,5 +113,14 @@ class AnalysisFailure
             'attempt' => $attempt,
             'occurred_at' => now()->toIso8601String(),
         ], fn ($value) => $value !== null && $value !== '');
+    }
+
+    private static function databaseErrorInfo(QueryException $exception): array
+    {
+        $previous = $exception->getPrevious();
+
+        return is_array($exception->errorInfo ?? null)
+            ? $exception->errorInfo
+            : (is_array($previous?->errorInfo ?? null) ? $previous->errorInfo : []);
     }
 }

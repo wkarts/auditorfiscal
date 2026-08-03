@@ -8,12 +8,14 @@ use App\Models\FiscalDocument;
 use App\Models\FiscalItem;
 use App\Models\ReportArtifact;
 use App\Services\AnalysisFailure;
+use App\Services\AnalysisResultDeduplicator;
 use App\Services\ApplicationLogger;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -35,7 +37,14 @@ class ProcessAnalysisBatch implements ShouldQueue
         return [10, 30];
     }
 
-    public function handle(): void
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('analysis-batch:'.$this->batchId))
+            ->dontRelease()
+            ->expireAfter($this->timeout + 300)];
+    }
+
+    public function handle(AnalysisResultDeduplicator $deduplicator): void
     {
         $batch = AnalysisBatch::with('company', 'catalogVersion', 'sourceFiles')->findOrFail($this->batchId);
         if (in_array($batch->status, ['completed', 'failed', 'superseded'], true)) {
@@ -88,13 +97,27 @@ class ProcessAnalysisBatch implements ShouldQueue
                 throw new RuntimeException('Resposta inválida do motor fiscal: documents/findings ausentes.');
             }
 
+            $engineDocumentCount = count($result['documents']);
+            $normalized = $deduplicator->normalize($result);
+            $result = $normalized['result'];
+            $receivedDocumentCount = max($engineDocumentCount, (int) ($result['summary']['received_document_count'] ?? 0));
+            $duplicateCount = max(count($normalized['duplicates']), (int) ($result['summary']['duplicate_occurrence_count'] ?? 0));
             ApplicationLogger::record('info', 'audit-worker', 'persistence_started', 'Persistência dos resultados iniciada.', [
+                'received_document_count' => $receivedDocumentCount,
                 'document_count' => count($result['documents']),
+                'duplicate_occurrence_count' => $duplicateCount,
                 'finding_count' => count($result['findings']),
                 'report_count' => count($result['reports'] ?? []),
             ], $batch, attempt: $attempt);
             $this->persistResults($batch, $result);
             $batch->refresh();
+            if ($duplicateCount > 0) {
+                ApplicationLogger::record('warning', 'audit-worker', 'duplicate_documents_consolidated', 'Documentos repetidos foram consolidados sem interromper a auditoria.', [
+                    'duplicate_occurrence_count' => $duplicateCount,
+                    'canonical_document_count' => count($result['documents']),
+                    'strategy' => 'first_occurrence_is_canonical',
+                ], $batch, attempt: $attempt);
+            }
             ApplicationLogger::record('info', 'audit-worker', 'completed', 'Auditoria concluída com sucesso.', [
                 'document_count' => $batch->document_count,
                 'item_count' => $batch->item_count,
@@ -102,7 +125,7 @@ class ProcessAnalysisBatch implements ShouldQueue
             ], $batch, attempt: $attempt);
         } catch (Throwable $exception) {
             $failure = AnalysisFailure::from($exception, $attempt);
-            $willRetry = $attempt < $this->tries;
+            $willRetry = $attempt < $this->tries && AnalysisFailure::isRetryable($exception);
             $batch->update([
                 'status' => $willRetry ? 'retrying' : 'failed',
                 'error' => $failure,
@@ -154,6 +177,11 @@ class ProcessAnalysisBatch implements ShouldQueue
     private function persistResults(AnalysisBatch $batch, array $result): void
     {
         DB::transaction(function () use ($batch, $result): void {
+            $lockedBatch = AnalysisBatch::query()->lockForUpdate()->findOrFail($batch->id);
+            if ($lockedBatch->status === 'completed') {
+                return;
+            }
+
             $documentMap = [];
             $itemMap = [];
 
@@ -163,7 +191,7 @@ class ProcessAnalysisBatch implements ShouldQueue
                 $reference = $documentData['document_ref'];
                 unset($documentData['document_ref']);
                 $documentData['id'] = (string) Str::uuid();
-                $documentData['analysis_batch_id'] = $batch->id;
+                $documentData['analysis_batch_id'] = $lockedBatch->id;
                 $documentData['normalized'] = json_encode($documentData['normalized'] ?? [], JSON_UNESCAPED_UNICODE);
                 $document = FiscalDocument::create($documentData);
                 $documentMap[$reference] = $document->id;
@@ -185,7 +213,7 @@ class ProcessAnalysisBatch implements ShouldQueue
                 $itemNumber = $findingData['item_number'] ?? null;
                 unset($findingData['document_ref'], $findingData['item_number']);
                 $findingData['id'] = (string) Str::uuid();
-                $findingData['analysis_batch_id'] = $batch->id;
+                $findingData['analysis_batch_id'] = $lockedBatch->id;
                 $findingData['fiscal_document_id'] = $reference ? ($documentMap[$reference] ?? null) : null;
                 $findingData['fiscal_item_id'] = $reference && $itemNumber ? ($itemMap[$reference.':'.$itemNumber] ?? null) : null;
                 $findingData['evidence'] = json_encode($findingData['evidence'] ?? [], JSON_UNESCAPED_UNICODE);
@@ -194,7 +222,7 @@ class ProcessAnalysisBatch implements ShouldQueue
 
             foreach ($result['reports'] ?? [] as $report) {
                 ReportArtifact::create([
-                    'analysis_batch_id' => $batch->id,
+                    'analysis_batch_id' => $lockedBatch->id,
                     'type' => $report['type'],
                     'template_version' => $report['template_version'],
                     'storage_path' => $report['storage_path'],
@@ -204,7 +232,7 @@ class ProcessAnalysisBatch implements ShouldQueue
                 ]);
             }
 
-            $batch->update([
+            $lockedBatch->update([
                 'status' => 'completed',
                 'processed_files' => $batch->total_files,
                 'document_count' => count($result['documents']),
