@@ -114,7 +114,6 @@ class ClientCompanyAccessTest extends TestCase
         $this->seedScenario();
         $user = User::query()->findOrFail(1);
         $user->update(['all_clients' => true]);
-        Company::query()->whereKey('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')->update(['trade_name' => 'Clima Frio']);
 
         $this->assertEqualsCanonicalizing([
             'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -156,6 +155,7 @@ class ClientCompanyAccessTest extends TestCase
         $this->seedScenario();
         $user = User::query()->findOrFail(1);
         $user->update(['all_clients' => true]);
+        Company::query()->whereKey('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')->update(['trade_name' => 'Clima Frio']);
 
         $byName = Request::create('/api/v1/companies', 'GET', ['search' => 'unifrio', 'per_page' => 200]);
         $byName->setUserResolver(fn () => $user);
