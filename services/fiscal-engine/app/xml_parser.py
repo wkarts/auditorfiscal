@@ -68,6 +68,9 @@ def _additional_identifiers(additional:str):
 def _money_map(node,prefix,names):
     return {name:str(_money(_dec(node,f'{prefix}/n:{name}'))) for name in names if _text(node,f'{prefix}/n:{name}')!=''}
 
+def _present(values):
+    return {key:value for key,value in values.items() if value not in ('',None,{},[])}
+
 def finding(rule,severity,category,title,description,document_ref,item_number=None,evidence=None,impact=None,action=None,confidence=None):
     return {'document_ref':document_ref,'item_number':item_number,'rule_code':rule,'rule_version':'1.0.0','severity':severity,'category':category,'title':title,'description':description,'impact':impact,'recommended_action':action,'status':'open','confidence':confidence,'evidence':evidence or {}}
 
@@ -77,11 +80,81 @@ def parse_event(data:bytes):
     if etree.QName(root).localname not in {'procEventoNFe','evento'}:return None
     return {'access_key':_text(root,'.//n:chNFe'),'event_type':_text(root,'.//n:tpEvento'),'status_code':_text(root,'.//n:cStat'),'description':_text(root,'.//n:xEvento'),'registered_at':_iso(_text(root,'.//n:dhRegEvento'))}
 
+def _local_text(node,name,default=''):
+    if node is None:return default
+    values=node.xpath(f'./*[local-name()="{name}"]')
+    return ((values[0].text or '').strip() if values else default)
+
+def _local_descendant_text(node,name,default=''):
+    if node is None:return default
+    values=node.xpath(f'.//*[local-name()="{name}"]')
+    return ((values[0].text or '').strip() if values else default)
+
+def _local_party(node):
+    if node is None:return {}
+    address=next(iter(node.xpath('./*[local-name()="enderEmit" or local-name()="enderReme" or local-name()="enderDest" or local-name()="enderExped" or local-name()="enderReceb" or local-name()="enderToma"]')),None)
+    result={'tax_id':_local_text(node,'CNPJ') or _local_text(node,'CPF') or None,'name':_local_text(node,'xNome') or None,'trade_name':_local_text(node,'xFant') or None,'state_registration':_local_text(node,'IE') or None}
+    if address is not None:
+        result['address']={key:value for key,value in {'street':_local_text(address,'xLgr'),'number':_local_text(address,'nro'),'district':_local_text(address,'xBairro'),'city_code':_local_text(address,'cMun'),'city':_local_text(address,'xMun'),'state':_local_text(address,'UF'),'postal_code':_local_text(address,'CEP')}.items() if value}
+    return {key:value for key,value in result.items() if value not in ('',None,{})}
+
+def _generic_access_key(root,inf,prefixes):
+    raw=inf.get('Id') or ''
+    for prefix in prefixes:raw=raw.removeprefix(prefix)
+    access_key=_digits(raw)
+    if len(access_key)==44:return access_key
+    for tag in ('chCTe','chMDFe'):
+        candidate=_digits(_local_descendant_text(root,tag))
+        if len(candidate)==44:return candidate
+    return None
+
+def parse_transport_document(root,data:bytes,source_file_id:str,xml_storage_path:str,company_tax_id:str):
+    inf=(root.xpath('.//*[local-name()="infCte" or local-name()="infMDFe"]') or [None])[0]
+    if inf is None:raise ValueError('XML não contém um documento fiscal eletrônico suportado.')
+    ide=next(iter(inf.xpath('./*[local-name()="ide"]')),None)
+    model=_local_text(ide,'mod')
+    if model not in {'57','67','58'}:raise ValueError(f'Modelo fiscal {model or "não identificado"} não é suportado para auditoria.')
+    document_type={'57':'CT-e','67':'CT-e OS','58':'MDF-e'}[model]
+    issuer_node=next(iter(inf.xpath('./*[local-name()="emit"]')),None)
+    recipient_node=next(iter(inf.xpath('./*[local-name()="dest"]')),None)
+    issuer=_local_party(issuer_node);recipient=_local_party(recipient_node)
+    participants=[issuer.get('tax_id'),recipient.get('tax_id')]
+    for name in ('rem','exped','receb','toma4'):
+        participants.append(_local_text(next(iter(inf.xpath(f'./*[local-name()="{name}"]')),None),'CNPJ'))
+    company_digits=_digits(company_tax_id)
+    participant_digits={_digits(value) for value in participants if value}
+    if company_digits and company_digits not in participant_digits:raise CompanyDocumentMismatch()
+    access_key=_generic_access_key(root,inf,('CTe','MDFe'))
+    document_ref=access_key or sha256(data).hexdigest()
+    issued_at=_iso(_local_text(ide,'dhEmi') or _local_text(ide,'dEmi'))
+    total_node=next(iter(inf.xpath('.//*[local-name()="vPrest" or local-name()="tot"]')),None)
+    total_value=_local_text(total_node,'vTPrest') or _local_text(total_node,'vCarga') or '0'
+    protocol=next(iter(root.xpath('.//*[local-name()="infProt"]')),None)
+    status_code=_local_text(protocol,'cStat')
+    normalized={
+        'document_type':document_type,
+        'issuer_name':issuer.get('name'),'recipient_name':recipient.get('name'),
+        'identification':{'model':model,'nature':_local_text(ide,'natOp'),'environment':_local_text(ide,'tpAmb'),'operation_type':_local_text(ide,'tpCTe'),'service_type':_local_text(ide,'tpServ')},
+        'issuer':issuer,'recipient':recipient,
+        'totals':{'vTPrest':total_value},
+        'protocol':{'number':_local_text(protocol,'nProt'),'status_code':status_code,'status_reason':_local_text(protocol,'xMotivo'),'received_at':_iso(_local_text(protocol,'dhRecbto'))},
+        'xml_sha256':sha256(data).hexdigest(),
+    }
+    return {
+        'document_ref':document_ref,'source_file_id':source_file_id,'access_key':access_key,'model':model,
+        'series':_local_text(ide,'serie') or None,'number':_local_text(ide,'nCT') or _local_text(ide,'nMDF') or None,
+        'issued_at':issued_at,'direction':'saida' if _digits(issuer.get('tax_id'))==company_digits else 'entrada',
+        'status':'authorized' if status_code in {'100','150'} else 'parsed',
+        'issuer_tax_id':issuer.get('tax_id'),'recipient_tax_id':recipient.get('tax_id'),'total_value':str(_money(Decimal(total_value.replace(',','.')) if total_value else ZERO)),
+        'ibs_cbs_base':'0.00','ibs_value':'0.00','cbs_value':'0.00','item_count':0,'normalized':normalized,
+        'xml_storage_path':xml_storage_path,'danfe_storage_path':None,'items':[],
+    },[]
+
 def parse_invoice(data:bytes,source_file_id:str,xml_storage_path:str,catalog:CatalogSnapshot,company_tax_id:str):
     parser=etree.XMLParser(resolve_entities=False,no_network=True,remove_blank_text=True,huge_tree=False)
     root=etree.fromstring(data,parser)
     inf=(root.xpath('.//n:infNFe',namespaces=NS) or [None])[0]
-    if inf is None:raise ValueError('XML não contém infNFe')
+    if inf is None:return parse_transport_document(root,data,source_file_id,xml_storage_path,company_tax_id)
     access_key=(inf.get('Id') or '').removeprefix('NFe') or _text(root,'.//n:protNFe/n:infProt/n:chNFe')
     document_ref=access_key or sha256(data).hexdigest()
     issuer=_tax_id(inf,'./n:emit');recipient=_tax_id(inf,'./n:dest')
@@ -178,14 +251,37 @@ def parse_invoice(data:bytes,source_file_id:str,xml_storage_path:str,catalog:Cat
     for payment in inf.xpath('./n:pag/n:detPag',namespaces=NS):
         payments.append({'method':_text(payment,'./n:tPag'),'value':str(_money(_dec(payment,'./n:vPag'))),'description':_text(payment,'./n:xPag') or None})
     references=[value for value in inf.xpath('./n:ide/n:NFref/n:refNFe/text()',namespaces=NS) if value]
+    invoice_total_names=['vBC','vICMS','vICMSDeson','vFCP','vBCST','vST','vFCPST','vFCPSTRet','vProd','vFrete','vSeg','vDesc','vII','vIPI','vIPIDevol','vPIS','vCOFINS','vOutro','vNF','vTotTrib']
+    identification=_present({
+        'model':_text(inf,'./n:ide/n:mod'),'series':_text(inf,'./n:ide/n:serie'),'number':_text(inf,'./n:ide/n:nNF'),
+        'cUF':_text(inf,'./n:ide/n:cUF'),'cNF':_text(inf,'./n:ide/n:cNF'),'nature':_text(inf,'./n:ide/n:natOp'),
+        'issued_at':issued_at,'exited_at':_iso(_text(inf,'./n:ide/n:dhSaiEnt') or _text(inf,'./n:ide/n:dSaiEnt')),
+        'operation_type':tp_nf,'destination':_text(inf,'./n:ide/n:idDest'),'municipality_code':_text(inf,'./n:ide/n:cMunFG'),
+        'print_type':_text(inf,'./n:ide/n:tpImp'),'emission_type':_text(inf,'./n:ide/n:tpEmis'),'check_digit':_text(inf,'./n:ide/n:cDV'),
+        'purpose':_text(inf,'./n:ide/n:finNFe'),'consumer':_text(inf,'./n:ide/n:indFinal'),'presence':_text(inf,'./n:ide/n:indPres'),
+        'process_type':_text(inf,'./n:ide/n:procEmi'),'process_version':_text(inf,'./n:ide/n:verProc'),'environment':_text(inf,'./n:ide/n:tpAmb'),
+        'contingency_at':_iso(_text(inf,'./n:ide/n:dhCont')),'contingency_reason':_text(inf,'./n:ide/n:xJust'),'references':references,
+    })
+    billing=_present({
+        'invoice_number':_text(inf,'./n:cobr/n:fat/n:nFat'),
+        'original_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vOrig'))) if _text(inf,'./n:cobr/n:fat/n:vOrig') else None,
+        'discount':str(_money(_dec(inf,'./n:cobr/n:fat/n:vDesc'))) if _text(inf,'./n:cobr/n:fat/n:vDesc') else None,
+        'net_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vLiq'))) if _text(inf,'./n:cobr/n:fat/n:vLiq') else None,
+        'installments':[_present({'number':_text(dup,'./n:nDup'),'due_at':_text(dup,'./n:dVenc'),'value':_text(dup,'./n:vDup')}) for dup in inf.xpath('./n:cobr/n:dup',namespaces=NS)],
+    })
+    transport=_present({
+        'freight_mode':_text(inf,'./n:transp/n:modFrete'),'carrier':_party(inf,'./n:transp/n:transporta','enderTransporta'),
+        'vehicle_plate':_text(inf,'./n:transp/n:veicTransp/n:placa'),'vehicle_state':_text(inf,'./n:transp/n:veicTransp/n:UF'),
+        'vehicle_rntc':_text(inf,'./n:transp/n:veicTransp/n:RNTC'),
+        'volumes':[_present({'quantity':_text(volume,'./n:qVol'),'kind':_text(volume,'./n:esp'),'brand':_text(volume,'./n:marca'),'numbering':_text(volume,'./n:nVol'),'net_weight':_text(volume,'./n:pesoL'),'gross_weight':_text(volume,'./n:pesoB')}) for volume in inf.xpath('./n:transp/n:vol',namespaces=NS)],
+    })
     normalized={
         'issuer_name':_text(inf,'./n:emit/n:xNome'),'recipient_name':_text(inf,'./n:dest/n:xNome'),'nature':_text(inf,'./n:ide/n:natOp'),
-        'identification':{'nature':_text(inf,'./n:ide/n:natOp'),'operation_type':tp_nf,'destination':_text(inf,'./n:ide/n:idDest'),'purpose':_text(inf,'./n:ide/n:finNFe'),'consumer':_text(inf,'./n:ide/n:indFinal'),'presence':_text(inf,'./n:ide/n:indPres'),'environment':_text(inf,'./n:ide/n:tpAmb'),'references':references},
+        'identification':identification,
         'issuer':_party(inf,'./n:emit','enderEmit'),'recipient':_party(inf,'./n:dest','enderDest'),
-        'totals':_money_map(inf,'./n:total/n:ICMSTot',['vBC','vICMS','vICMSDeson','vFCP','vBCST','vST','vFCPST','vProd','vFrete','vSeg','vDesc','vII','vIPI','vPIS','vCOFINS','vOutro','vNF','vTotTrib']),
-        'transport':{'freight_mode':_text(inf,'./n:transp/n:modFrete'),'carrier':_party(inf,'./n:transp/n:transporta','enderTransporta'),'vehicle_plate':_text(inf,'./n:transp/n:veicTransp/n:placa'),'vehicle_state':_text(inf,'./n:transp/n:veicTransp/n:UF')},
-        'billing':{'invoice_number':_text(inf,'./n:cobr/n:fat/n:nFat'),'original_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vOrig'))),'discount':str(_money(_dec(inf,'./n:cobr/n:fat/n:vDesc'))),'net_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vLiq')))},
-        'payments':payments,'additional_information':{'tax_authority':_text(inf,'./n:infAdic/n:infAdFisco'),'taxpayer':_text(inf,'./n:infAdic/n:infCpl')},
+        'totals':_money_map(inf,'./n:total/n:ICMSTot',invoice_total_names),
+        'transport':transport,'billing':billing,
+        'payments':payments,'additional_information':_present({'tax_authority':_text(inf,'./n:infAdic/n:infAdFisco'),'taxpayer':_text(inf,'./n:infAdic/n:infCpl')}),
         'protocol':{'number':_text(root,'.//n:protNFe/n:infProt/n:nProt'),'status_code':_text(root,'.//n:protNFe/n:infProt/n:cStat'),'status_reason':_text(root,'.//n:protNFe/n:infProt/n:xMotivo'),'received_at':_iso(_text(root,'.//n:protNFe/n:infProt/n:dhRecbto'))},
         'xml_sha256':sha256(data).hexdigest(),
     }

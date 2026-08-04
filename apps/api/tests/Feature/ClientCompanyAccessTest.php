@@ -49,6 +49,10 @@ class ClientCompanyAccessTest extends TestCase
             $table->string('password');
             $table->boolean('active')->default(true);
             $table->boolean('all_clients')->default(false);
+            // A migration de produção adiciona esta coluna. A fixture usa o
+            // schema final porque o controller persiste a visibilidade ao
+            // cadastrar ou editar usuários.
+            $table->string('analysis_visibility', 12)->default('own');
             $table->timestamps();
         });
         Schema::create('permissions', function (Blueprint $table): void {

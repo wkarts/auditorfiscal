@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProcessAnalysisBatch;
+use App\Jobs\GenerateFiscalAuxiliaryDocument;
 use App\Models\AnalysisBatch;
 use App\Models\FiscalCatalogVersion;
 use App\Models\FiscalDocument;
@@ -12,6 +13,7 @@ use App\Services\AnalysisFailure;
 use App\Services\AnalysisAnalytics;
 use App\Services\ApplicationLogger;
 use App\Services\CompanyAccess;
+use App\Services\AnalysisAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -34,13 +36,12 @@ class AnalysisController extends Controller
             abort_unless($request->user()->can('analyses.restore'), 403, 'Você não possui permissão para consultar auditorias excluídas.');
         }
 
-        $query = AnalysisBatch::query();
+        $query = AnalysisAccess::query($request->user());
         if ($visibility === 'deleted') {
             $query->onlyTrashed();
         }
         $query->with('company', 'catalogVersion')
-            ->withCount(['documents', 'findings', 'reports'])
-            ->whereIn('company_id', CompanyAccess::ids($request->user()));
+            ->withCount(['documents', 'findings', 'reports']);
 
         if (! empty($data['company_id'])) {
             $query->where('company_id', $data['company_id']);
@@ -172,7 +173,7 @@ class AnalysisController extends Controller
 
     public function show(Request $request, AnalysisBatch $batch)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         $batch->load(
             'company',
             'catalogVersion',
@@ -194,7 +195,7 @@ class AnalysisController extends Controller
 
     public function logs(Request $request, AnalysisBatch $batch)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         $perPage = min(max((int) $request->input('per_page', 100), 1), 200);
 
         return $batch->applicationLogs()->latest('id')->paginate($perPage);
@@ -202,14 +203,14 @@ class AnalysisController extends Controller
 
     public function log(Request $request, AnalysisBatch $batch, \App\Models\ApplicationLog $log)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         abort_unless($log->analysis_batch_id === $batch->id, 404);
         return response()->json($log, 200, ['Content-Disposition' => 'attachment; filename="audit-log-'.$log->id.'.json"'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     }
 
     public function exportLogs(Request $request, AnalysisBatch $batch)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         $query = $batch->applicationLogs()->oldest('id');
         return response()->streamDownload(function () use ($query): void {
             $query->chunkById(500, function ($logs): void {
@@ -220,13 +221,13 @@ class AnalysisController extends Controller
 
     public function analytics(Request $request, AnalysisBatch $batch, AnalysisAnalytics $analytics)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         return $analytics->build($batch);
     }
 
     public function documents(Request $request, AnalysisBatch $batch)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         $query = $batch->documents()->withCount('items');
         foreach (['direction', 'status', 'number', 'issuer_tax_id', 'recipient_tax_id'] as $field) {
             if ($request->filled($field)) {
@@ -239,7 +240,7 @@ class AnalysisController extends Controller
 
     public function document(Request $request, AnalysisBatch $batch, FiscalDocument $document)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         abort_unless($document->analysis_batch_id === $batch->id, 404);
 
         return $document->load('items', 'findings');
@@ -252,12 +253,39 @@ class AnalysisController extends Controller
 
     public function danfe(Request $request, AnalysisBatch $batch, FiscalDocument $document)
     {
-        return $this->documentFile($request, $batch, $document, 'danfe_storage_path', 'application/pdf', 'pdf');
+        return $this->auxiliaryDocument($request, $batch, $document);
+    }
+
+    public function auxiliaryDocument(Request $request, AnalysisBatch $batch, FiscalDocument $document)
+    {
+        $field = $document->auxiliary_document_storage_path ? 'auxiliary_document_storage_path' : 'danfe_storage_path';
+
+        return $this->documentFile($request, $batch, $document, $field, 'application/pdf', 'pdf');
+    }
+
+    public function generateAuxiliaryDocument(Request $request, AnalysisBatch $batch, FiscalDocument $document)
+    {
+        AnalysisAccess::ensure($request->user(), $batch);
+        abort_unless($document->analysis_batch_id === $batch->id, 404);
+        if ($document->auxiliary_document_storage_path || $document->danfe_storage_path) {
+            return response()->json(['data' => $document, 'message' => 'O documento auxiliar já está disponível.']);
+        }
+        if ($document->auxiliary_document_status === 'not_supported') {
+            return response()->json(['data' => $document, 'message' => 'Este modelo não possui renderizador configurado.'], 422);
+        }
+
+        $document->update(['auxiliary_document_status' => 'queued', 'auxiliary_document_error' => null]);
+        GenerateFiscalAuxiliaryDocument::dispatch($document->id)->onQueue('reports');
+        ApplicationLogger::record('info', 'auxiliary-document', 'generation_requested', 'Geração manual do documento auxiliar solicitada.', [
+            'model' => $document->model,
+        ], $batch, $request->user()->id, $request->attributes->get('request_id'));
+
+        return response()->json(['data' => $document->fresh(), 'message' => 'Geração do documento auxiliar enviada para a fila.'], 202);
     }
 
     public function findings(Request $request, AnalysisBatch $batch)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         $query = $batch->findings()->with([
             'fiscalDocument:id,number,access_key',
             'fiscalItem:id,item_number,ncm,description',
@@ -274,7 +302,7 @@ class AnalysisController extends Controller
 
     public function resolve(Request $request, AnalysisBatch $batch, Finding $finding)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         abort_unless($finding->analysis_batch_id === $batch->id, 404);
         $data = $request->validate([
             'status' => 'required|in:open,in_review,resolved,dismissed',
@@ -290,7 +318,7 @@ class AnalysisController extends Controller
 
     public function cancel(Request $request, AnalysisBatch $batch)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         $data = $request->validate([
             'reason' => 'nullable|string|max:500',
         ]);
@@ -348,7 +376,7 @@ class AnalysisController extends Controller
 
     public function destroy(Request $request, AnalysisBatch $batch)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         $data = $request->validate([
             'reason' => 'nullable|string|max:500',
         ]);
@@ -376,7 +404,7 @@ class AnalysisController extends Controller
             'reason' => 'nullable|string|max:500',
         ]);
         $batch = AnalysisBatch::onlyTrashed()->findOrFail($batchId);
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
 
         DB::transaction(function () use ($batch, $request, $data): void {
             $locked = AnalysisBatch::onlyTrashed()->lockForUpdate()->findOrFail($batch->id);
@@ -392,7 +420,7 @@ class AnalysisController extends Controller
 
     public function reprocess(Request $request, AnalysisBatch $batch)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         $data = $request->validate([
             'catalog_version_id' => 'nullable|uuid|exists:fiscal_catalog_versions,id',
         ]);
@@ -464,12 +492,15 @@ class AnalysisController extends Controller
 
     private function documentFile(Request $request, AnalysisBatch $batch, FiscalDocument $document, string $field, string $contentType, string $extension)
     {
-        CompanyAccess::ensure($request->user(), $batch->company_id);
+        AnalysisAccess::ensure($request->user(), $batch);
         abort_unless($document->analysis_batch_id === $batch->id, 404);
         $path = $document->{$field};
         abort_unless($path && Storage::disk(config('filesystems.default'))->exists($path), 404, strtoupper($extension).' não disponível.');
         $disk = Storage::disk(config('filesystems.default'));
-        $filename = 'NFe-'.($document->access_key ?: $document->id).'.'.$extension;
+        $prefix = $extension === 'pdf'
+            ? ($document->auxiliary_document_type ?: ($document->model === '65' ? 'DANFCE' : 'DANFE'))
+            : 'documento-fiscal';
+        $filename = $prefix.'-'.($document->access_key ?: $document->id).'.'.$extension;
         $disposition = $request->boolean('download') ? 'attachment' : 'inline';
         return response()->stream(function () use ($disk, $path): void {
             $stream = $disk->readStream($path);

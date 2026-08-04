@@ -73,7 +73,7 @@ Se uma etapa falhar, a GitHub Release não é criada.
 ## Imagem-base versionada da API
 
 A compilação das extensões PHP/PECL é estável e cara; por isso somente a API usa
-`ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1`. Node e Python continuam com
+`ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v2`. Node e Python continuam com
 suas imagens oficiais e caches de dependências: suas dependências nativas são
 menores/diferentes e uma base comum aumentaria tamanho e acoplamento. A base não
 contém código, `composer.json` nem dependências da aplicação.

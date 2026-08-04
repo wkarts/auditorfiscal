@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Company;
 use App\Models\User;
 use App\Services\CompanyAccess;
+use App\Services\AnalysisAccess;
 use App\Services\TenantAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +44,7 @@ class UserController extends Controller
                 'password' => Hash::make($data['password']),
                 'active' => $data['active'] ?? true,
                 'all_clients' => $data['all_clients'],
+                'analysis_visibility' => $data['analysis_visibility'],
             ]);
             $this->syncAccess($user, $data);
 
@@ -56,7 +58,7 @@ class UserController extends Controller
         $data = $this->normalize($request->validate($this->rules($user->id, true)), $request->user(), $user);
         $this->ensureAssignableAccess($request->user(), $data);
 
-        $attributes = collect($data)->only(['tenant_id', 'name', 'email', 'password', 'active', 'all_clients'])->all();
+        $attributes = collect($data)->only(['tenant_id', 'name', 'email', 'password', 'active', 'all_clients', 'analysis_visibility'])->all();
         if (empty($attributes['password'])) {
             unset($attributes['password']);
         } else {
@@ -92,6 +94,7 @@ class UserController extends Controller
             'account_id' => 'sometimes|uuid|exists:tenants,id',
             'tenant_id' => 'sometimes|uuid|exists:tenants,id',
             'all_clients' => 'sometimes|boolean',
+            'analysis_visibility' => 'sometimes|in:own,all',
             'client_ids' => 'sometimes|array',
             'client_ids.*' => 'uuid|exists:companies,id',
             'company_ids' => 'sometimes|array',
@@ -118,6 +121,13 @@ class UserController extends Controller
         $role = $data['role'] ?? $user?->roles()->value('name');
         if ($role === 'Administrador') {
             $data['all_clients'] = true;
+            $data['analysis_visibility'] = 'all';
+        }
+        $data['analysis_visibility'] = $data['analysis_visibility'] ?? $user?->analysis_visibility ?? 'own';
+        if ($data['analysis_visibility'] === 'all' && ! AnalysisAccess::canAssignAll($actor)) {
+            throw ValidationException::withMessages([
+                'analysis_visibility' => 'Somente um administrador pode conceder acesso a todas as auditorias da empresa.',
+            ]);
         }
         if ($data['all_clients']) {
             $data['client_ids'] = [];

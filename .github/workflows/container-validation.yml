@@ -119,7 +119,7 @@ jobs:
         run: |
           docker buildx build \
             --file docker/base/api.Dockerfile \
-            --tag ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1 \
+            --tag ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v2 \
             --cache-from type=gha,scope=pr-api-base \
             --cache-to type=gha,mode=max,scope=pr-api-base \
             --load .
@@ -132,7 +132,7 @@ jobs:
           # exporte a base para o image store do daemon, esse builder isolado
           # tentaria resolver o FROM novamente no GHCR. O driver docker reutiliza
           # a imagem local carregada e mantém a PR independente do package remoto.
-          docker image inspect ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1 >/dev/null
+          docker image inspect ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v2 >/dev/null
           docker buildx use default
           docker buildx inspect default | grep -Eq '^Driver:[[:space:]]+docker$'
 

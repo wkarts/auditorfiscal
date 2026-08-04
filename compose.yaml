@@ -6,7 +6,7 @@ x-api-build: &api_build
   context: ./apps/api
   dockerfile: Dockerfile
   args:
-    BASE_IMAGE: ${API_BASE_IMAGE:-ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1}
+    BASE_IMAGE: ${API_BASE_IMAGE:-ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v2}
     APP_VERSION: ${APP_VERSION:-dev}
 x-api-image: &api_image ${LOCAL_API_IMAGE:-auditor-fiscal/api:dev}
 

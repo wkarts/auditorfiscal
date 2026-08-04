@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.8
 # check=error=true
 
-ARG BASE_IMAGE=ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v1
+ARG BASE_IMAGE=ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v2
 FROM ${BASE_IMAGE} AS php-base
 
 FROM php-base AS vendor
