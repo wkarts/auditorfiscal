@@ -5,22 +5,22 @@ import {describe,expect,it} from 'vitest';
 import ClientCombobox from '@/components/ClientCombobox.vue';
 
 const clients=[
-  {id:'edycar',legal_name:'EDYCAR VEÍCULOS LTDA',trade_name:'EDYCAR VEÍCULOS',tax_id:'27330569000171'},
-  {id:'multicar',legal_name:'MULTICAR COMÉRCIO DE VEÍCULOS LTDA',trade_name:'MULTICAR VEÍCULOS',tax_id:'06064829000134'},
+  {id:'alpha',legal_name:'ALFA VEÍCULOS LTDA',trade_name:'ALFA VEÍCULOS',tax_id:'11111111111111'},
+  {id:'beta',legal_name:'BETA COMÉRCIO LTDA',trade_name:'BETA COMÉRCIO',tax_id:'22222222222222'},
 ];
 
 describe('seletor pesquisável de clientes',()=>{
   it('localiza por nome sem diferenciar acentos e seleciona pelo teclado',async()=>{
-    const wrapper=mount(ClientCombobox,{props:{modelValue:'edycar',options:clients}});
+    const wrapper=mount(ClientCombobox,{props:{modelValue:'alpha',options:clients}});
     const input=wrapper.get('input');
 
     await input.trigger('focus');
     await input.setValue('comercio');
 
     expect(wrapper.findAll('[role="option"]')).toHaveLength(1);
-    expect(wrapper.text()).toContain('MULTICAR VEÍCULOS');
+    expect(wrapper.text()).toContain('BETA COMÉRCIO');
     await input.trigger('keydown',{key:'Enter'});
-    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['multicar']);
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['beta']);
   });
 
   it('localiza CNPJ digitado com pontuação e informa a pesquisa remota',async()=>{
@@ -28,10 +28,10 @@ describe('seletor pesquisável de clientes',()=>{
     const input=wrapper.get('input');
 
     await input.trigger('focus');
-    await input.setValue('06.064.829/0001-34');
+    await input.setValue('22.222.222/2222-22');
 
     expect(wrapper.findAll('[role="option"]')).toHaveLength(1);
-    expect(wrapper.text()).toContain('06064829000134');
-    expect(wrapper.emitted('search')?.[0]).toEqual(['06.064.829/0001-34']);
+    expect(wrapper.text()).toContain('22222222222222');
+    expect(wrapper.emitted('search')?.[0]).toEqual(['22.222.222/2222-22']);
   });
 });
