@@ -243,7 +243,43 @@ class AnalysisController extends Controller
         AnalysisAccess::ensure($request->user(), $batch);
         abort_unless($document->analysis_batch_id === $batch->id, 404);
 
-        return $document->load('items', 'findings');
+        return $this->normalizeDocumentJson($document->load('items', 'findings'));
+    }
+
+    /**
+     * Compatibilidade para lotes processados antes da correção de serialização.
+     * Alguns campos JSONB foram persistidos como uma string que contém JSON.
+     * A resposta normaliza somente em memória, sem alterar a evidência original
+     * nem exigir migração bloqueante em bases produtivas.
+     */
+    private function normalizeDocumentJson(FiscalDocument $document): FiscalDocument
+    {
+        $document->setAttribute('normalized', $this->jsonObject($document->getAttribute('normalized')));
+
+        $document->items->each(function ($item): void {
+            foreach (['details', 'tax_components', 'catalog_match'] as $attribute) {
+                $item->setAttribute($attribute, $this->jsonObject($item->getAttribute($attribute)));
+            }
+        });
+
+        $document->findings->each(function ($finding): void {
+            $finding->setAttribute('evidence', $this->jsonObject($finding->getAttribute('evidence')));
+        });
+
+        return $document;
+    }
+
+    private function jsonObject(mixed $value): array
+    {
+        while (is_string($value)) {
+            $decoded = json_decode($value, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                return [];
+            }
+            $value = $decoded;
+        }
+
+        return is_array($value) ? $value : [];
     }
 
     public function xml(Request $request, AnalysisBatch $batch, FiscalDocument $document)
