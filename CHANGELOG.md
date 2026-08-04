@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.1] - 2026-08-04
+
+### Alterado
+
+- Versão patch reservada automaticamente pelo workflow para evitar reutilização de tag.
+
 ## [1.2.0] - 2026-08-04
 
 ### Adicionado
