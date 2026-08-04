@@ -197,6 +197,9 @@ jobs:
     timeout-minutes: 75
     strategy:
       fail-fast: false
+      # Evita rajadas simultâneas de tags, SBOM, proveniência e attestations no
+      # GHCR, que podem acionar o limite secundário mesmo com autenticação válida.
+      max-parallel: 1
       matrix:
         include:
           - component: api
