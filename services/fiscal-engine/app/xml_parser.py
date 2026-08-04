@@ -68,6 +68,9 @@ def _additional_identifiers(additional:str):
 def _money_map(node,prefix,names):
     return {name:str(_money(_dec(node,f'{prefix}/n:{name}'))) for name in names if _text(node,f'{prefix}/n:{name}')!=''}
 
+def _present(values):
+    return {key:value for key,value in values.items() if value not in ('',None,{},[])}
+
 def finding(rule,severity,category,title,description,document_ref,item_number=None,evidence=None,impact=None,action=None,confidence=None):
     return {'document_ref':document_ref,'item_number':item_number,'rule_code':rule,'rule_version':'1.0.0','severity':severity,'category':category,'title':title,'description':description,'impact':impact,'recommended_action':action,'status':'open','confidence':confidence,'evidence':evidence or {}}
 
@@ -248,14 +251,37 @@ def parse_invoice(data:bytes,source_file_id:str,xml_storage_path:str,catalog:Cat
     for payment in inf.xpath('./n:pag/n:detPag',namespaces=NS):
         payments.append({'method':_text(payment,'./n:tPag'),'value':str(_money(_dec(payment,'./n:vPag'))),'description':_text(payment,'./n:xPag') or None})
     references=[value for value in inf.xpath('./n:ide/n:NFref/n:refNFe/text()',namespaces=NS) if value]
+    invoice_total_names=['vBC','vICMS','vICMSDeson','vFCP','vBCST','vST','vFCPST','vFCPSTRet','vProd','vFrete','vSeg','vDesc','vII','vIPI','vIPIDevol','vPIS','vCOFINS','vOutro','vNF','vTotTrib']
+    identification=_present({
+        'model':_text(inf,'./n:ide/n:mod'),'series':_text(inf,'./n:ide/n:serie'),'number':_text(inf,'./n:ide/n:nNF'),
+        'cUF':_text(inf,'./n:ide/n:cUF'),'cNF':_text(inf,'./n:ide/n:cNF'),'nature':_text(inf,'./n:ide/n:natOp'),
+        'issued_at':issued_at,'exited_at':_iso(_text(inf,'./n:ide/n:dhSaiEnt') or _text(inf,'./n:ide/n:dSaiEnt')),
+        'operation_type':tp_nf,'destination':_text(inf,'./n:ide/n:idDest'),'municipality_code':_text(inf,'./n:ide/n:cMunFG'),
+        'print_type':_text(inf,'./n:ide/n:tpImp'),'emission_type':_text(inf,'./n:ide/n:tpEmis'),'check_digit':_text(inf,'./n:ide/n:cDV'),
+        'purpose':_text(inf,'./n:ide/n:finNFe'),'consumer':_text(inf,'./n:ide/n:indFinal'),'presence':_text(inf,'./n:ide/n:indPres'),
+        'process_type':_text(inf,'./n:ide/n:procEmi'),'process_version':_text(inf,'./n:ide/n:verProc'),'environment':_text(inf,'./n:ide/n:tpAmb'),
+        'contingency_at':_iso(_text(inf,'./n:ide/n:dhCont')),'contingency_reason':_text(inf,'./n:ide/n:xJust'),'references':references,
+    })
+    billing=_present({
+        'invoice_number':_text(inf,'./n:cobr/n:fat/n:nFat'),
+        'original_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vOrig'))) if _text(inf,'./n:cobr/n:fat/n:vOrig') else None,
+        'discount':str(_money(_dec(inf,'./n:cobr/n:fat/n:vDesc'))) if _text(inf,'./n:cobr/n:fat/n:vDesc') else None,
+        'net_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vLiq'))) if _text(inf,'./n:cobr/n:fat/n:vLiq') else None,
+        'installments':[_present({'number':_text(dup,'./n:nDup'),'due_at':_text(dup,'./n:dVenc'),'value':_text(dup,'./n:vDup')}) for dup in inf.xpath('./n:cobr/n:dup',namespaces=NS)],
+    })
+    transport=_present({
+        'freight_mode':_text(inf,'./n:transp/n:modFrete'),'carrier':_party(inf,'./n:transp/n:transporta','enderTransporta'),
+        'vehicle_plate':_text(inf,'./n:transp/n:veicTransp/n:placa'),'vehicle_state':_text(inf,'./n:transp/n:veicTransp/n:UF'),
+        'vehicle_rntc':_text(inf,'./n:transp/n:veicTransp/n:RNTC'),
+        'volumes':[_present({'quantity':_text(volume,'./n:qVol'),'kind':_text(volume,'./n:esp'),'brand':_text(volume,'./n:marca'),'numbering':_text(volume,'./n:nVol'),'net_weight':_text(volume,'./n:pesoL'),'gross_weight':_text(volume,'./n:pesoB')}) for volume in inf.xpath('./n:transp/n:vol',namespaces=NS)],
+    })
     normalized={
         'issuer_name':_text(inf,'./n:emit/n:xNome'),'recipient_name':_text(inf,'./n:dest/n:xNome'),'nature':_text(inf,'./n:ide/n:natOp'),
-        'identification':{'nature':_text(inf,'./n:ide/n:natOp'),'operation_type':tp_nf,'destination':_text(inf,'./n:ide/n:idDest'),'purpose':_text(inf,'./n:ide/n:finNFe'),'consumer':_text(inf,'./n:ide/n:indFinal'),'presence':_text(inf,'./n:ide/n:indPres'),'environment':_text(inf,'./n:ide/n:tpAmb'),'references':references},
+        'identification':identification,
         'issuer':_party(inf,'./n:emit','enderEmit'),'recipient':_party(inf,'./n:dest','enderDest'),
-        'totals':_money_map(inf,'./n:total/n:ICMSTot',['vBC','vICMS','vICMSDeson','vFCP','vBCST','vST','vFCPST','vProd','vFrete','vSeg','vDesc','vII','vIPI','vPIS','vCOFINS','vOutro','vNF','vTotTrib']),
-        'transport':{'freight_mode':_text(inf,'./n:transp/n:modFrete'),'carrier':_party(inf,'./n:transp/n:transporta','enderTransporta'),'vehicle_plate':_text(inf,'./n:transp/n:veicTransp/n:placa'),'vehicle_state':_text(inf,'./n:transp/n:veicTransp/n:UF')},
-        'billing':{'invoice_number':_text(inf,'./n:cobr/n:fat/n:nFat'),'original_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vOrig'))),'discount':str(_money(_dec(inf,'./n:cobr/n:fat/n:vDesc'))),'net_value':str(_money(_dec(inf,'./n:cobr/n:fat/n:vLiq')))},
-        'payments':payments,'additional_information':{'tax_authority':_text(inf,'./n:infAdic/n:infAdFisco'),'taxpayer':_text(inf,'./n:infAdic/n:infCpl')},
+        'totals':_money_map(inf,'./n:total/n:ICMSTot',invoice_total_names),
+        'transport':transport,'billing':billing,
+        'payments':payments,'additional_information':_present({'tax_authority':_text(inf,'./n:infAdic/n:infAdFisco'),'taxpayer':_text(inf,'./n:infAdic/n:infCpl')}),
         'protocol':{'number':_text(root,'.//n:protNFe/n:infProt/n:nProt'),'status_code':_text(root,'.//n:protNFe/n:infProt/n:cStat'),'status_reason':_text(root,'.//n:protNFe/n:infProt/n:xMotivo'),'received_at':_iso(_text(root,'.//n:protNFe/n:infProt/n:dhRecbto'))},
         'xml_sha256':sha256(data).hexdigest(),
     }
