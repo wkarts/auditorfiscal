@@ -25,7 +25,7 @@ class AuthController extends Controller
 
         return [
             'token' => $user->createToken($data['device_name'] ?? 'web')->plainTextToken,
-            'user' => $user->load('roles', 'account', 'clients'),
+            'user' => $user->load('roles.permissions', 'account', 'clients'),
         ];
     }
 

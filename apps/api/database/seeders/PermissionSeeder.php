@@ -13,6 +13,18 @@ use Spatie\Permission\PermissionRegistrar;
 
 class PermissionSeeder extends Seeder
 {
+    public const AUDITOR_PERMISSIONS = [
+        'clients.view',
+        'clients.manage',
+        'tenants.view',
+        'catalogs.view',
+        'analyses.view',
+        'analyses.create',
+        'analyses.cancel',
+        'analyses.resolve',
+        'reports.download',
+    ];
+
     public function run(): void
     {
         app(PermissionRegistrar::class)->forgetCachedPermissions();
@@ -48,16 +60,7 @@ class PermissionSeeder extends Seeder
         $admin->syncPermissions($permissions);
 
         $auditor = Role::firstOrCreate(['name' => 'Auditor Fiscal', 'guard_name' => 'web']);
-        $auditor->syncPermissions([
-            'clients.view',
-            'tenants.view',
-            'catalogs.view',
-            'analyses.view',
-            'analyses.create',
-            'analyses.cancel',
-            'analyses.resolve',
-            'reports.download',
-        ]);
+        $auditor->syncPermissions(self::AUDITOR_PERMISSIONS);
 
         $viewer = Role::firstOrCreate(['name' => 'Consulta', 'guard_name' => 'web']);
         $viewer->syncPermissions(['clients.view', 'tenants.view', 'catalogs.view', 'analyses.view', 'reports.download']);

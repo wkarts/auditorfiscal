@@ -14,7 +14,7 @@ const routes=[
     {path:'catalogos/:id',name:'detalhe do catálogo',component:()=>import('@/views/CatalogDetailView.vue')},
     {path:'contas',name:'empresas da plataforma',component:()=>import('@/views/TenantsView.vue'),meta:{platformAdmin:true}},
     {path:'tenants',redirect:'/contas'},
-    {path:'clientes',name:'clientes auditados',component:()=>import('@/views/CompaniesView.vue'),meta:{admin:true}},
+    {path:'clientes',name:'clientes auditados',component:()=>import('@/views/CompaniesView.vue'),meta:{permission:'clients.manage'}},
     {path:'empresas',redirect:'/clientes'},
     {path:'usuarios',name:'usuários',component:()=>import('@/views/UsersView.vue'),meta:{admin:true}},
   ]},
@@ -22,5 +22,5 @@ const routes=[
 ];
 
 const router=createRouter({history:createWebHistory(),routes});
-router.beforeEach(async to=>{const auth=useAuthStore();if(!auth.ready)await auth.restore();if(to.meta.auth&&!auth.authenticated)return '/login';if(to.path==='/login'&&auth.authenticated)return '/';if(to.meta.platformAdmin&&!auth.isPlatformAdmin)return '/';if(to.meta.admin&&!auth.isAdmin)return '/'});
+router.beforeEach(async to=>{const auth=useAuthStore();if(!auth.ready)await auth.restore();if(to.meta.auth&&!auth.authenticated)return '/login';if(to.path==='/login'&&auth.authenticated)return '/';if(to.meta.platformAdmin&&!auth.isPlatformAdmin)return '/';if(to.meta.admin&&!auth.isAdmin)return '/';if(to.meta.permission&&!auth.hasPermission(String(to.meta.permission)))return '/'});
 export default router;
