@@ -6,7 +6,6 @@ FROM composer:${COMPOSER_VERSION} AS composer-bin
 FROM php:${PHP_VERSION}-cli-alpine
 ENV APP_ENV=production APP_DEBUG=false COMPOSER_ALLOW_SUPERUSER=1 COMPOSER_NO_INTERACTION=1 COMPOSER_NO_AUDIT=1
 RUN set -eux; \
-    apk upgrade --no-cache; \
     apk add --no-cache ca-certificates curl freetype icu-libs libjpeg-turbo libpng libxml2 libzip oniguruma postgresql-libs rabbitmq-c; \
     apk add --no-cache --virtual .build-deps $PHPIZE_DEPS curl-dev freetype-dev icu-dev libjpeg-turbo-dev libpng-dev libxml2-dev libzip-dev linux-headers oniguruma-dev postgresql-dev rabbitmq-c-dev; \
     docker-php-ext-configure gd --with-freetype --with-jpeg; \

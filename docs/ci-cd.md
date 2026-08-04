@@ -13,7 +13,9 @@ A PR só pode ser mesclada quando forem aprovados:
 7. migração, seed, inicialização da stack e smoke test autenticado;
 8. Trivy sobre as três imagens construídas.
 
-As imagens executam atualização dos pacotes do sistema operacional durante o build. Vulnerabilidades com correção disponível permanecem bloqueantes; não são ignoradas pelo pipeline.
+As imagens partem de imagens oficiais atualizadas e instalam somente as bibliotecas
+necessárias ao runtime. Vulnerabilidades com correção disponível permanecem
+bloqueantes; não são ignoradas pelo pipeline.
 
 A PR não publica imagens. Ela executa o mesmo Dockerfile que será usado na
 release, eliminando erros de Composer, NPM, PIP, extensões PHP e
@@ -73,25 +75,27 @@ Se uma etapa falhar, a GitHub Release não é criada.
 ## Imagem-base versionada da API
 
 A compilação das extensões PHP/PECL é estável e cara; por isso somente a API usa
-`ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v2`. Node e Python continuam com
+`ghcr.io/wkarts/auditorfiscal-api-base:php8.4-v3`. Node e Python continuam com
 suas imagens oficiais e caches de dependências: suas dependências nativas são
 menores/diferentes e uma base comum aumentaria tamanho e acoplamento. A base não
 contém código, `composer.json` nem dependências da aplicação.
 
-O workflow `API Base Image` publica `linux/amd64` e `linux/arm64`, usa Buildx e
-cache GHA, gera SBOM/provenance, atesta e bloqueia vulnerabilidades altas/críticas
-corrigíveis. Ele executa somente quando `docker/base/api.Dockerfile`,
-`docker/base/versions.env` ou o próprio workflow muda, ou por **Actions > API
-Base Image > Run workflow**. A autenticação usa exclusivamente `GITHUB_TOKEN`
-com permissões mínimas declaradas.
+O workflow de release chama `API Base Image` como dependência explícita, antes do
+build da API. Ele consulta primeiro a tag imutável: quando ela existe, a reutiliza
+sem recompilar; quando não existe, compila, analisa e publica uma vez. Assim não há
+espera por polling entre workflows concorrentes. A arquitetura da base é
+`linux/amd64`, a mesma das imagens finais publicadas pela release; isso elimina a
+compilação ARM por emulação que não era consumida pelos artefatos distribuídos.
+O fluxo usa Buildx, cache GHA reduzido, SBOM/provenance, atestação e bloqueia
+vulnerabilidades altas/críticas corrigíveis. A execução manual continua disponível
+em **Actions > API Base Image > Run workflow**.
 
 Para atualizar, altere runtime/toolchain no Dockerfile e incremente
 `API_BASE_VERSION` em `docker/base/versions.env`; tags publicadas são imutáveis e
-não há `latest`. Após publicar e validar, atualize `API_BASE_IMAGE` e o argumento
-do workflow de release. Correções de segurança seguem o mesmo fluxo, mesmo sem
-mudança de versão do PHP. Para forçar uma reconstrução, incremente
-`API_BASE_VERSION`, faça commit e dispare o workflow manualmente. O workflow
-recusa sobrescrever tags existentes; a tag `sha-<commit completo>` preserva
+não há `latest`. O CI bloqueia uma alteração no Dockerfile sem incremento dessa
+versão. Correções de segurança seguem o mesmo fluxo, mesmo sem mudança de versão
+do PHP. Para forçar uma reconstrução, incremente `API_BASE_VERSION` e faça commit.
+O workflow não sobrescreve tags existentes; a tag `sha-<commit completo>` preserva
 rastreabilidade.
 
 Rollback não reconstrói a base: restaure `API_BASE_IMAGE`/`BASE_IMAGE` para uma

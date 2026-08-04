@@ -1,12 +1,14 @@
 name: API Base Image
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - docker/base/api.Dockerfile
-      - docker/base/versions.env
-      - .github/workflows/base-image.yml
+  workflow_call:
+    outputs:
+      image:
+        description: Referência imutável da imagem-base garantida pelo workflow.
+        value: ${{ jobs.publish.outputs.image }}
+      published:
+        description: Indica se a execução precisou publicar uma nova imagem-base.
+        value: ${{ jobs.publish.outputs.published }}
   workflow_dispatch:
 
 permissions:
@@ -16,7 +18,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: api-base-image
+  group: api-base-image-${{ github.repository_owner }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -26,27 +28,32 @@ env:
 
 jobs:
   publish:
-    name: Build, scan and publish API base
+    name: Ensure, scan and publish API base
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 35
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      published: ${{ steps.result.outputs.published }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Load immutable version contract
-        id: version
+        id: image
         shell: bash
         run: |
           set -euo pipefail
           source docker/base/versions.env
           [[ "$API_BASE_VERSION" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]+$ ]]
-          echo "tag=$API_BASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "php=$PHP_VERSION" >> "$GITHUB_OUTPUT"
-          echo "composer=$COMPOSER_VERSION" >> "$GITHUB_OUTPUT"
-          echo "namespace=$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+          [[ "$PHP_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]
+          [[ "$COMPOSER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          NAMESPACE="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${API_BASE_VERSION}"
+          printf 'image=%s\n' "$IMAGE" >> "$GITHUB_OUTPUT"
+          printf 'php=%s\n' "$PHP_VERSION" >> "$GITHUB_OUTPUT"
+          printf 'composer=%s\n' "$COMPOSER_VERSION" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$API_BASE_VERSION" >> "$GITHUB_OUTPUT"
+          printf 'namespace=%s\n' "$NAMESPACE" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -58,31 +65,37 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check immutable base availability
+        id: availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker buildx imagetools inspect "${{ steps.image.outputs.image }}" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+            echo 'Imagem-base já publicada; reconstrução dispensada.'
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+            echo 'Imagem-base ainda não publicada; será construída uma única vez.'
+          fi
+
       - name: Build and load AMD64 candidate for scan
+        if: steps.availability.outputs.exists != 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/base/api.Dockerfile
           platforms: linux/amd64
           load: true
+          pull: true
           tags: auditorfiscal-api-base:scan
           build-args: |
-            PHP_VERSION=${{ steps.version.outputs.php }}
-            COMPOSER_VERSION=${{ steps.version.outputs.composer }}
+            PHP_VERSION=${{ steps.image.outputs.php }}
+            COMPOSER_VERSION=${{ steps.image.outputs.composer }}
           cache-from: type=gha,scope=api-base
-          cache-to: type=gha,mode=max,scope=api-base
-
-      - name: Refuse to overwrite immutable version tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          IMAGE="${REGISTRY}/${{ steps.version.outputs.namespace }}/${IMAGE_NAME}:${{ steps.version.outputs.tag }}"
-          if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
-            echo "A tag imutável já existe: $IMAGE. Incremente API_BASE_VERSION." >&2
-            exit 1
-          fi
+          cache-to: type=gha,mode=min,scope=api-base
 
       - name: Scan candidate
+        if: steps.availability.outputs.exists != 'true'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: auditorfiscal-api-base:scan
@@ -91,28 +104,44 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-      - name: Publish immutable multi-architecture image
+      - name: Publish scanned immutable AMD64 image
         id: push
+        if: steps.availability.outputs.exists != 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/base/api.Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
+          pull: false
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.version.outputs.namespace }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ steps.version.outputs.namespace }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+            ${{ steps.image.outputs.image }}
+            ghcr.io/${{ steps.image.outputs.namespace }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
           build-args: |
-            PHP_VERSION=${{ steps.version.outputs.php }}
-            COMPOSER_VERSION=${{ steps.version.outputs.composer }}
+            PHP_VERSION=${{ steps.image.outputs.php }}
+            COMPOSER_VERSION=${{ steps.image.outputs.composer }}
           cache-from: type=gha,scope=api-base
-          cache-to: type=gha,mode=max,scope=api-base
+          cache-to: type=gha,mode=min,scope=api-base
           provenance: mode=max
           sbom: true
 
       - name: Attest image
+        if: steps.availability.outputs.exists != 'true'
         uses: actions/attest@v4.2.0
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ steps.version.outputs.namespace }}/${{ env.IMAGE_NAME }}
+          subject-name: ghcr.io/${{ steps.image.outputs.namespace }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+      - name: Publish result
+        id: result
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ '${{ steps.availability.outputs.exists }}' == 'true' ]]; then
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+            echo "Imagem-base reutilizada: ${{ steps.image.outputs.image }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+            echo "Imagem-base publicada: ${{ steps.image.outputs.image }}" >> "$GITHUB_STEP_SUMMARY"
+          fi

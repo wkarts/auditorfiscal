@@ -71,6 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           bash ./scripts/check-version.sh --ci
+          bash ./scripts/check-api-base-version.sh "${{ github.event.pull_request.base.sha }}"
 
           # Regressão: tags de deploy podem ser fixadas para rollback sem que o
           # contrato exija igualdade com VERSION.
@@ -96,7 +97,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: amqp, bcmath, curl, dom, intl, mbstring, pcntl, pdo_sqlite, pdo_pgsql, redis, sockets, xml, xmlwriter, zip
+          extensions: amqp, bcmath, curl, dom, intl, mbstring, pcntl, pdo_sqlite, pdo_pgsql, redis, soap, sockets, xml, xmlwriter, zip
           coverage: none
           tools: composer:v2
 
