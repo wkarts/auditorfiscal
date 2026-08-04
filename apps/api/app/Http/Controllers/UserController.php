@@ -8,8 +8,10 @@ use App\Services\CompanyAccess;
 use App\Services\AnalysisAccess;
 use App\Services\TenantAccess;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
@@ -24,11 +26,26 @@ class UserController extends Controller
             'clients:id,tenant_id,legal_name,trade_name,tax_id,active',
         );
 
+        // Instalações antigas e alguns bancos efêmeros de teste ainda podem
+        // não ter a tabela do Sanctum. A listagem de usuários continua
+        // disponível e simplesmente informa todos como offline até a tabela
+        // existir e os tokens começarem a registrar atividade.
+        if (Schema::hasTable('personal_access_tokens')) {
+            $query->withMax('tokens as last_seen_at', 'last_used_at');
+        }
+
         if (! TenantAccess::isPlatformAdmin($request->user())) {
             $query->where('tenant_id', $request->user()->tenant_id ?? '__sem-conta__');
         }
 
-        return $query->orderBy('name')->paginate(50);
+        $users = $query->orderBy('name')->paginate(50);
+        $threshold = now()->subMinutes(5);
+        $users->getCollection()->each(function (User $user) use ($threshold): void {
+            $seenAt = $user->last_seen_at ? Carbon::parse($user->last_seen_at) : null;
+            $user->setAttribute('online', $seenAt?->greaterThanOrEqualTo($threshold) ?? false);
+        });
+
+        return $users;
     }
 
     public function store(Request $request)

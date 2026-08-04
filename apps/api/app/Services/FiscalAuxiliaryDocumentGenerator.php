@@ -46,7 +46,7 @@ class FiscalAuxiliaryDocumentGenerator
             throw new RuntimeException('O modelo informado no registro não corresponde ao XML fiscal original.');
         }
 
-        $pdf = $this->render($xml, $type);
+        $pdf = $this->render($this->xmlForRenderer($xml, $type), $type);
         if (! str_starts_with($pdf, '%PDF-')) {
             throw new RuntimeException('O renderizador fiscal não retornou um PDF válido.');
         }
@@ -78,6 +78,33 @@ class FiscalAuxiliaryDocumentGenerator
         $renderer->creditsIntegratorFooter('Documento auxiliar gerado pelo Auditor Fiscal a partir do XML autorizado.', false);
 
         return $renderer->render();
+    }
+
+    /**
+     * As versões atuais do sped-da ainda não interpretam o grupo IBSCBS da
+     * NF-e 4.00. Ele é mantido no XML original; apenas a cópia entregue ao
+     * renderizador é reduzida para o leiaute que ele reconhece. Isso evita que
+     * uma tag nova impeça a emissão de todo o DANFE.
+     */
+    private function xmlForRenderer(string $xml, string $type): string
+    {
+        if (! in_array($type, ['DANFE', 'DANFCE'], true)) {
+            return $xml;
+        }
+
+        $dom = new DOMDocument();
+        if (! $dom->loadXML($xml, LIBXML_NONET | LIBXML_COMPACT)) {
+            throw new RuntimeException('O XML fiscal original não pôde ser preparado para geração do documento auxiliar.');
+        }
+        $groups = [];
+        foreach ($dom->getElementsByTagName('IBSCBS') as $group) {
+            $groups[] = $group;
+        }
+        foreach ($groups as $group) {
+            $group->parentNode?->removeChild($group);
+        }
+
+        return $dom->saveXML() ?: $xml;
     }
 
     private function modelFromXml(string $xml): string

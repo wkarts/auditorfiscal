@@ -23,8 +23,11 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['email' => 'A empresa vinculada a este usuário está inativa.']);
         }
 
+        $token = $user->createToken($data['device_name'] ?? 'web');
+        $token->accessToken->forceFill(['last_used_at' => now()])->save();
+
         return [
-            'token' => $user->createToken($data['device_name'] ?? 'web')->plainTextToken,
+            'token' => $token->plainTextToken,
             'user' => $user->load('roles.permissions', 'account', 'clients'),
         ];
     }
