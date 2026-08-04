@@ -150,6 +150,35 @@ class ClientCompanyAccessTest extends TestCase
         $this->assertEqualsCanonicalizing([1, 9], collect($page->items())->pluck('id')->all());
     }
 
+    public function test_client_search_uses_name_or_cnpj_without_crossing_the_account_boundary(): void
+    {
+        $this->seedScenario();
+        $user = User::query()->findOrFail(1);
+        $user->update(['all_clients' => true]);
+        Company::query()->whereKey('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')->update(['trade_name' => 'Clima Frio']);
+
+        $byName = Request::create('/api/v1/companies', 'GET', ['search' => 'unifrio', 'per_page' => 200]);
+        $byName->setUserResolver(fn () => $user);
+        $nameResults = (new CompanyController)->index($byName);
+
+        $byTaxId = Request::create('/api/v1/companies', 'GET', ['search' => '44.444.444/4444-44']);
+        $byTaxId->setUserResolver(fn () => $user);
+        $taxIdResults = (new CompanyController)->index($byTaxId);
+
+        $byTradeName = Request::create('/api/v1/companies', 'GET', ['search' => 'clima frio']);
+        $byTradeName->setUserResolver(fn () => $user);
+        $tradeNameResults = (new CompanyController)->index($byTradeName);
+
+        $outsideAccount = Request::create('/api/v1/companies', 'GET', ['search' => 'Cliente de Outra Conta']);
+        $outsideAccount->setUserResolver(fn () => $user);
+        $outsideResults = (new CompanyController)->index($outsideAccount);
+
+        $this->assertSame(['Unifrio'], collect($nameResults->items())->pluck('legal_name')->all());
+        $this->assertSame(['Unifrio'], collect($taxIdResults->items())->pluck('legal_name')->all());
+        $this->assertSame(['Clima Frio'], collect($tradeNameResults->items())->pluck('trade_name')->all());
+        $this->assertEmpty($outsideResults->items());
+    }
+
     public function test_account_and_audited_client_cnpj_can_be_corrected(): void
     {
         $this->seedScenario();

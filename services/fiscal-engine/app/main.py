@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from .audit_service import AuditService
 from .cancellation import AuditCancelled
+from .input_validation import FiscalInputError
 from .catalog_import import normalize_catalog
 from .database import check_database_connection
 from .security import require_internal_token
@@ -21,7 +22,7 @@ from .storage import ObjectStorage
 
 
 logger=logging.getLogger('auditor-fiscal-engine')
-app=FastAPI(title='Auditor Fiscal Engine',version='1.1.16',docs_url='/docs')
+app=FastAPI(title='Auditor Fiscal Engine',version='1.1.17',docs_url='/docs')
 app.mount('/metrics',make_asgi_app())
 
 
@@ -67,6 +68,27 @@ async def audit_cancelled(_request:Request,exception:AuditCancelled):
         'detail':'A auditoria foi cancelada em um ponto seguro do processamento.',
         'error_code':'AUDIT_CANCELLED',
         'technical_message':str(exception),
+    })
+
+
+@app.exception_handler(FiscalInputError)
+async def fiscal_input_error(request:Request,exception:FiscalInputError):
+    incident_id=str(uuid4())
+    logger.warning(json.dumps({
+        'level':'warning',
+        'component':'fiscal-engine',
+        'event':'fiscal_input_rejected',
+        'incident_id':incident_id,
+        'method':request.method,
+        'path':request.url.path,
+        'error_code':exception.error_code,
+        'technical_message':exception.technical_message,
+    },ensure_ascii=False))
+    return JSONResponse(status_code=422,content={
+        'detail':exception.detail,
+        'error_code':exception.error_code,
+        'incident_id':incident_id,
+        'technical_message':exception.technical_message,
     })
 
 

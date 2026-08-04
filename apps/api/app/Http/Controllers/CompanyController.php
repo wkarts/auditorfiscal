@@ -12,12 +12,28 @@ class CompanyController extends Controller
 {
     public function index(Request $request)
     {
+        $data = $request->validate([
+            'search' => 'nullable|string|max:120',
+            'per_page' => 'nullable|integer|min:1|max:200',
+        ]);
         $query = Company::with('tenant:id,legal_name,trade_name,tax_id,active')
             ->whereIn('id', CompanyAccess::ids($request->user()));
         if (! TenantAccess::isPlatformAdmin($request->user())) {
             $query->where('active', true)->whereHas('tenant', fn ($tenant) => $tenant->where('active', true));
         }
-        return $query->orderBy('legal_name')->paginate(50);
+        if (! empty($data['search'])) {
+            $term = '%'.mb_strtolower(trim($data['search'])).'%';
+            $taxId = preg_replace('/\D/', '', $data['search']);
+            $query->where(function ($search) use ($term, $taxId): void {
+                $search->whereRaw('LOWER(legal_name) LIKE ?', [$term])
+                    ->orWhereRaw('LOWER(trade_name) LIKE ?', [$term]);
+                if ($taxId !== '') {
+                    $search->orWhere('tax_id', 'like', "%{$taxId}%");
+                }
+            });
+        }
+
+        return $query->orderBy('legal_name')->paginate($data['per_page'] ?? 50);
     }
 
     public function store(Request $request)
