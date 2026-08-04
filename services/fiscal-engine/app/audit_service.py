@@ -13,6 +13,7 @@ from .reports.pdf_report import build_pdf
 from .reports.excel_report import build_excel
 from .danfe import build_danfe
 from .document_duplicates import document_identity,duplicate_finding
+from .input_validation import FiscalInputError
 from .settings import settings
 from .storage import ObjectStorage
 from .xml_parser import parse_event,parse_invoice,finding
@@ -49,7 +50,7 @@ class AuditService:
                     if identity:document_identities[identity]=doc;identity_occurrences[identity]=1
                     storage_path=f"batches/{payload['batch_id']}/xml/{doc.get('access_key') or tmp_ref}.xml";doc['xml_storage_path']=storage_path;self.storage.put_bytes(data,storage_path)
                     documents.append(doc);findings.extend(doc_findings)
-                except AuditCancelled:raise
+                except (AuditCancelled,FiscalInputError):raise
                 except Exception as exc:
                     findings.append(finding('XML-PARSE-001','critical','document','XML inválido ou não suportado',str(exc),tmp_ref,evidence={'file':xml_path.name,'sha256':tmp_ref},impact='Documento não auditado.',action='Corrigir ou substituir o XML de origem.'))
             documents_by_key={document.get('access_key'):document for document in documents if document.get('access_key')}

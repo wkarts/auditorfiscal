@@ -3,10 +3,14 @@
 namespace Tests\Unit;
 
 use App\Services\AnalysisFailure;
+use App\Services\AnalysisResultValidationException;
+use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Validation\ValidationException;
 use PDOException;
 use RuntimeException;
@@ -50,5 +54,21 @@ class AnalysisFailureHttpStatusTest extends TestCase
         $this->assertStringNotContainsString('private fiscal payload', $failure['technical_message']);
         $this->assertFalse(AnalysisFailure::isRetryable($exception));
         $this->assertTrue(AnalysisFailure::isRetryable(new RuntimeException('temporary internal failure')));
+    }
+
+    public function test_it_preserves_non_retryable_engine_input_error_contract(): void
+    {
+        $response = new Response(new Psr7Response(422, ['Content-Type' => 'application/json'], json_encode([
+            'detail' => 'O XML não pertence ao cliente auditado selecionado.',
+            'error_code' => 'XML_COMPANY_MISMATCH',
+            'technical_message' => 'O CNPJ selecionado não consta como emitente nem destinatário.',
+        ])));
+        $exception = new RequestException($response);
+        $failure = AnalysisFailure::from($exception);
+
+        $this->assertSame('XML_COMPANY_MISMATCH', $failure['code']);
+        $this->assertSame('O XML não pertence ao cliente auditado selecionado.', $failure['message']);
+        $this->assertFalse(AnalysisFailure::isRetryable($exception));
+        $this->assertFalse(AnalysisFailure::isRetryable(new AnalysisResultValidationException('XML_DUPLICATE_ITEM_NUMBER', 'duplicado')));
     }
 }

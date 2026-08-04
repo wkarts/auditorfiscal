@@ -5,6 +5,7 @@ from hashlib import sha256
 import re
 from lxml import etree
 from .catalog import CatalogSnapshot
+from .input_validation import CompanyDocumentMismatch,DuplicateItemNumber,InvalidItemNumber
 from .product_reconciliation import item_identity
 NS={'n':'http://www.portalfiscal.inf.br/nfe'}
 ZERO=Decimal('0');CENT=Decimal('0.01')
@@ -30,6 +31,7 @@ def _iso(value:str):
     except:return value
 
 def _tax_id(node,prefix):return _text(node,f'{prefix}/n:CNPJ') or _text(node,f'{prefix}/n:CPF') or None
+def _digits(value):return re.sub(r'\D','',value or '')
 
 def _address(node,prefix):
     return {key:value for key,value in {
@@ -83,13 +85,19 @@ def parse_invoice(data:bytes,source_file_id:str,xml_storage_path:str,catalog:Cat
     access_key=(inf.get('Id') or '').removeprefix('NFe') or _text(root,'.//n:protNFe/n:infProt/n:chNFe')
     document_ref=access_key or sha256(data).hexdigest()
     issuer=_tax_id(inf,'./n:emit');recipient=_tax_id(inf,'./n:dest')
+    company_tax_id=_digits(company_tax_id);issuer_tax_id=_digits(issuer);recipient_tax_id=_digits(recipient)
+    if company_tax_id and company_tax_id not in {issuer_tax_id,recipient_tax_id}:raise CompanyDocumentMismatch()
     tp_nf=_text(inf,'./n:ide/n:tpNF')
     direction=('saida' if tp_nf=='1' else 'entrada') if issuer==company_tax_id else ('entrada' if recipient==company_tax_id else ('saida' if tp_nf=='1' else 'entrada'))
     issued_at=_iso(_text(inf,'./n:ide/n:dhEmi') or _text(inf,'./n:ide/n:dEmi'))
     issued_on=datetime.fromisoformat(issued_at).date() if issued_at else None
-    items=[];findings=[]
+    items=[];findings=[];item_numbers=set()
     for det in inf.xpath('./n:det',namespaces=NS):
-        nitem=int(det.get('nItem','0'));prod=(det.xpath('./n:prod',namespaces=NS) or [det])[0];tax=(det.xpath('./n:imposto',namespaces=NS) or [det])[0]
+        raw_item_number=det.get('nItem','')
+        if not raw_item_number.isdigit() or int(raw_item_number)<1:raise InvalidItemNumber()
+        nitem=int(raw_item_number)
+        if nitem in item_numbers:raise DuplicateItemNumber()
+        item_numbers.add(nitem);prod=(det.xpath('./n:prod',namespaces=NS) or [det])[0];tax=(det.xpath('./n:imposto',namespaces=NS) or [det])[0]
         components={
           'vProd':_dec(prod,'./n:vProd'),'vServ':_dec(tax,'./n:ISSQN/n:vServ'),'vFrete':_dec(prod,'./n:vFrete'),'vSeg':_dec(prod,'./n:vSeg'),'vOutro':_dec(prod,'./n:vOutro'),'vII':_sum(tax,'.//n:II/n:vII'),'vDesc':_dec(prod,'./n:vDesc'),'vPIS':_sum(tax,'.//n:PIS/*/n:vPIS'),'vCOFINS':_sum(tax,'.//n:COFINS/*/n:vCOFINS'),'vICMS':_sum(tax,'.//n:ICMS/*/n:vICMS'),'vICMSUFDest':_sum(tax,'.//n:ICMSUFDest/n:vICMSUFDest'),'vFCP':_sum(tax,'.//n:ICMS/*/n:vFCP'),'vFCPUFDest':_sum(tax,'.//n:ICMSUFDest/n:vFCPUFDest'),'vICMSMono':_sum(tax,'.//n:ICMS/*/n:vICMSMono'),'vISSQN':_sum(tax,'.//n:ISSQN/n:vISSQN'),'vIS':_sum(tax,'.//n:IS//n:vIS')}
         has_base_group=bool(tax.xpath('./n:IBSCBS/n:gIBSCBS',namespaces=NS))

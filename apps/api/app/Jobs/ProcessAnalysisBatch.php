@@ -9,6 +9,7 @@ use App\Models\FiscalItem;
 use App\Models\ReportArtifact;
 use App\Services\AnalysisFailure;
 use App\Services\AnalysisResultDeduplicator;
+use App\Services\AnalysisResultValidator;
 use App\Services\ApplicationLogger;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -44,7 +45,7 @@ class ProcessAnalysisBatch implements ShouldQueue
             ->expireAfter($this->timeout + 300)];
     }
 
-    public function handle(AnalysisResultDeduplicator $deduplicator): void
+    public function handle(AnalysisResultDeduplicator $deduplicator, AnalysisResultValidator $validator): void
     {
         $batch = AnalysisBatch::with('company', 'catalogVersion', 'sourceFiles')->findOrFail($this->batchId);
         if ($batch->cancellationRequested()) {
@@ -115,6 +116,7 @@ class ProcessAnalysisBatch implements ShouldQueue
             $engineDocumentCount = count($result['documents']);
             $normalized = $deduplicator->normalize($result);
             $result = $normalized['result'];
+            $validator->validate($result, (string) $batch->company->tax_id);
             $receivedDocumentCount = max($engineDocumentCount, (int) ($result['summary']['received_document_count'] ?? 0));
             $duplicateCount = max(count($normalized['duplicates']), (int) ($result['summary']['duplicate_occurrence_count'] ?? 0));
             ApplicationLogger::record('info', 'audit-worker', 'persistence_started', 'Persistência dos resultados iniciada.', [

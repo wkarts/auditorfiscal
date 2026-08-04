@@ -31,6 +31,9 @@ class AnalysisFailure
 
     public static function isRetryable(Throwable $exception): bool
     {
+        if ($exception instanceof AnalysisResultValidationException) {
+            return false;
+        }
         if ($exception instanceof QueryException) {
             $sqlState = self::databaseErrorInfo($exception)[0] ?? null;
 
@@ -75,10 +78,21 @@ class AnalysisFailure
                     ? ApplicationLogger::sanitizeMessage((string) $structuredResponse['technical_message'])
                     : null;
             }
-            $code = 'FISCAL_ENGINE_HTTP_'.$httpStatus;
+            $engineErrorCode = is_array($structuredResponse) && isset($structuredResponse['error_code'])
+                ? ApplicationLogger::sanitizeMessage((string) $structuredResponse['error_code'])
+                : null;
+            $engineDetail = is_array($structuredResponse) && isset($structuredResponse['detail'])
+                ? ApplicationLogger::sanitizeMessage((string) $structuredResponse['detail'])
+                : null;
+            $code = $httpStatus < 500 && $engineErrorCode ? $engineErrorCode : 'FISCAL_ENGINE_HTTP_'.$httpStatus;
             $message = $httpStatus >= 500
                 ? 'O motor fiscal retornou um erro interno.'
-                : 'O motor fiscal recusou os dados enviados para processamento.';
+                : ($engineDetail ?: 'O motor fiscal recusou os dados enviados para processamento.');
+        } elseif ($exception instanceof AnalysisResultValidationException) {
+            $code = $exception->failureCode;
+            $message = $exception->failureCode === 'XML_COMPANY_MISMATCH'
+                ? 'O XML não pertence ao cliente auditado selecionado.'
+                : 'O resultado do motor fiscal foi recusado por inconsistência estrutural.';
         } elseif ($exception instanceof QueryException) {
             $code = 'DATABASE_ERROR';
             $message = 'O processamento falhou ao acessar o banco de dados.';
