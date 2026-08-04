@@ -16,6 +16,9 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
@@ -24,7 +27,7 @@ class ClientCompanyAccessTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['model_has_roles', 'roles', 'tenant_user', 'company_user', 'companies', 'users', 'tenants'] as $table) {
+        foreach (['audit_logs', 'role_has_permissions', 'model_has_permissions', 'model_has_roles', 'permissions', 'roles', 'tenant_user', 'company_user', 'companies', 'users', 'tenants'] as $table) {
             Schema::dropIfExists($table);
         }
         Schema::create('tenants', function (Blueprint $table): void {
@@ -48,11 +51,30 @@ class ClientCompanyAccessTest extends TestCase
             $table->boolean('all_clients')->default(false);
             $table->timestamps();
         });
+        Schema::create('permissions', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->string('guard_name');
+            $table->timestamps();
+            $table->unique(['name', 'guard_name']);
+        });
         Schema::create('roles', function (Blueprint $table): void {
             $table->id();
             $table->string('name');
             $table->string('guard_name');
             $table->timestamps();
+            $table->unique(['name', 'guard_name']);
+        });
+        Schema::create('role_has_permissions', function (Blueprint $table): void {
+            $table->unsignedBigInteger('permission_id');
+            $table->unsignedBigInteger('role_id');
+            $table->primary(['permission_id', 'role_id']);
+        });
+        Schema::create('model_has_permissions', function (Blueprint $table): void {
+            $table->unsignedBigInteger('permission_id');
+            $table->string('model_type');
+            $table->unsignedBigInteger('model_id');
+            $table->primary(['permission_id', 'model_id', 'model_type']);
         });
         Schema::create('model_has_roles', function (Blueprint $table): void {
             $table->unsignedBigInteger('role_id');
@@ -85,12 +107,27 @@ class ClientCompanyAccessTest extends TestCase
             $table->timestamps();
             $table->primary(['company_id', 'user_id']);
         });
+        Schema::create('audit_logs', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->uuid('company_id')->nullable();
+            $table->string('action');
+            $table->string('entity_type')->nullable();
+            $table->string('entity_id')->nullable();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->string('request_id')->nullable();
+            $table->json('before')->nullable();
+            $table->json('after')->nullable();
+            $table->json('metadata')->default('{}');
+            $table->timestamp('created_at')->useCurrent();
+        });
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
     protected function tearDown(): void
     {
-        foreach (['model_has_roles', 'roles', 'tenant_user', 'company_user', 'companies', 'users', 'tenants'] as $table) {
+        foreach (['audit_logs', 'role_has_permissions', 'model_has_permissions', 'model_has_roles', 'permissions', 'roles', 'tenant_user', 'company_user', 'companies', 'users', 'tenants'] as $table) {
             Schema::dropIfExists($table);
         }
         parent::tearDown();
@@ -194,6 +231,48 @@ class ClientCompanyAccessTest extends TestCase
 
         $this->assertDatabaseHas('companies', ['id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'tax_id' => '66666666666666']);
         $this->assertDatabaseHas('tenants', ['id' => '11111111-1111-4111-8111-111111111111', 'tax_id' => '77777777777777']);
+    }
+
+    public function test_auditor_manages_only_audited_clients_inside_own_account(): void
+    {
+        $this->seedScenario();
+        $user = User::query()->findOrFail(1);
+        $permissions = collect(['clients.view', 'clients.manage'])
+            ->map(fn (string $name) => Permission::create(['name' => $name, 'guard_name' => 'web']));
+        $role = Role::create(['name' => 'Auditor Fiscal', 'guard_name' => 'web']);
+        $role->syncPermissions($permissions);
+        $user->assignRole($role);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+        Sanctum::actingAs($user);
+
+        $created = $this->postJson('/api/v1/clients', [
+            'account_id' => '11111111-1111-4111-8111-111111111111',
+            'legal_name' => 'Cliente Novo da Conta',
+            'trade_name' => 'Cliente Novo',
+            'tax_id' => '66666666666666',
+        ])->assertCreated();
+
+        $clientId = $created->json('id');
+        $this->assertDatabaseHas('companies', [
+            'id' => $clientId,
+            'tenant_id' => '11111111-1111-4111-8111-111111111111',
+            'tax_id' => '66666666666666',
+        ]);
+        $this->assertDatabaseHas('company_user', ['company_id' => $clientId, 'user_id' => $user->id]);
+
+        $this->patchJson("/api/v1/clients/{$clientId}", ['trade_name' => 'Cliente Atualizado'])
+            ->assertOk()
+            ->assertJsonPath('trade_name', 'Cliente Atualizado');
+
+        $this->postJson('/api/v1/clients', [
+            'account_id' => '22222222-2222-4222-8222-222222222222',
+            'legal_name' => 'Cliente Indevido',
+            'tax_id' => '77777777777777',
+        ])->assertForbidden();
+
+        $this->patchJson('/api/v1/clients/cccccccc-cccc-4ccc-8ccc-cccccccccccc', [
+            'trade_name' => 'Alteração Indevida',
+        ])->assertNotFound();
     }
 
     public function test_master_creates_user_for_account_with_selected_clients(): void
