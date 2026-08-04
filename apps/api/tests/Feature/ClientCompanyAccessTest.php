@@ -114,6 +114,7 @@ class ClientCompanyAccessTest extends TestCase
         $this->seedScenario();
         $user = User::query()->findOrFail(1);
         $user->update(['all_clients' => true]);
+        Company::query()->whereKey('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')->update(['trade_name' => 'Clima Frio']);
 
         $this->assertEqualsCanonicalizing([
             'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -164,12 +165,17 @@ class ClientCompanyAccessTest extends TestCase
         $byTaxId->setUserResolver(fn () => $user);
         $taxIdResults = (new CompanyController)->index($byTaxId);
 
+        $byTradeName = Request::create('/api/v1/companies', 'GET', ['search' => 'clima frio']);
+        $byTradeName->setUserResolver(fn () => $user);
+        $tradeNameResults = (new CompanyController)->index($byTradeName);
+
         $outsideAccount = Request::create('/api/v1/companies', 'GET', ['search' => 'Cliente de Outra Conta']);
         $outsideAccount->setUserResolver(fn () => $user);
         $outsideResults = (new CompanyController)->index($outsideAccount);
 
         $this->assertSame(['Unifrio'], collect($nameResults->items())->pluck('legal_name')->all());
         $this->assertSame(['Unifrio'], collect($taxIdResults->items())->pluck('legal_name')->all());
+        $this->assertSame(['Clima Frio'], collect($tradeNameResults->items())->pluck('trade_name')->all());
         $this->assertEmpty($outsideResults->items());
     }
 
