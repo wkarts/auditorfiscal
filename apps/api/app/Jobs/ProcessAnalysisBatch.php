@@ -282,7 +282,11 @@ class ProcessAnalysisBatch implements ShouldQueue
                 }
                 $documentData['id'] = (string) Str::uuid();
                 $documentData['analysis_batch_id'] = $lockedBatch->id;
-                $documentData['normalized'] = json_encode($documentData['normalized'] ?? [], JSON_UNESCAPED_UNICODE);
+                // Estes atributos possuem cast array no Eloquent. Serializá-los aqui
+                // gravava uma string JSON dentro do JSONB, e não um objeto JSON.
+                // Preserve a estrutura para que a API e o detalhe da NF possam ler
+                // emitente, destinatário, totais e dados dos itens corretamente.
+                $documentData['normalized'] = $documentData['normalized'] ?? [];
                 $document = FiscalDocument::create($documentData);
                 $documentMap[$reference] = $document->id;
                 $documentIds[] = $document->id;
@@ -291,9 +295,9 @@ class ProcessAnalysisBatch implements ShouldQueue
                     $itemNumber = $itemData['item_number'];
                     $itemData['id'] = (string) Str::uuid();
                     $itemData['fiscal_document_id'] = $document->id;
-                    $itemData['tax_components'] = json_encode($itemData['tax_components'] ?? [], JSON_UNESCAPED_UNICODE);
-                    $itemData['catalog_match'] = json_encode($itemData['catalog_match'] ?? [], JSON_UNESCAPED_UNICODE);
-                    $itemData['details'] = json_encode($itemData['details'] ?? [], JSON_UNESCAPED_UNICODE);
+                    $itemData['tax_components'] = $itemData['tax_components'] ?? [];
+                    $itemData['catalog_match'] = $itemData['catalog_match'] ?? [];
+                    $itemData['details'] = $itemData['details'] ?? [];
                     $item = FiscalItem::create($itemData);
                     $itemMap[$reference.':'.$itemNumber] = $item->id;
                 }
@@ -307,7 +311,7 @@ class ProcessAnalysisBatch implements ShouldQueue
                 $findingData['analysis_batch_id'] = $lockedBatch->id;
                 $findingData['fiscal_document_id'] = $reference ? ($documentMap[$reference] ?? null) : null;
                 $findingData['fiscal_item_id'] = $reference && $itemNumber ? ($itemMap[$reference.':'.$itemNumber] ?? null) : null;
-                $findingData['evidence'] = json_encode($findingData['evidence'] ?? [], JSON_UNESCAPED_UNICODE);
+                $findingData['evidence'] = $findingData['evidence'] ?? [];
                 Finding::create($findingData);
             }
 
