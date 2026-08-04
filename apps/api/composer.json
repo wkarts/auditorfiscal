@@ -17,6 +17,7 @@
     "ext-pdo_pgsql": "*",
     "ext-redis": "*",
     "ext-sockets": "*",
+    "ext-soap": "*",
     "ext-xml": "*",
     "ext-xmlwriter": "*",
     "ext-zip": "*",
