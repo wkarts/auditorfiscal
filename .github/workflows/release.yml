@@ -39,7 +39,9 @@ jobs:
         run: python3 scripts/scan-repository-data.py
 
       - name: Validate version and tag
-        run: bash ./scripts/check-version.sh --release
+        run: |
+          bash ./scripts/check-version.sh --release
+          bash ./scripts/check-api-base-version.sh "${GITHUB_SHA}^"
 
       - name: Export version metadata
         id: version
@@ -73,7 +75,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: amqp, bcmath, curl, dom, intl, mbstring, pcntl, pdo_sqlite, pdo_pgsql, redis, sockets, xml, xmlwriter, zip
+          extensions: amqp, bcmath, curl, dom, intl, mbstring, pcntl, pdo_sqlite, pdo_pgsql, redis, soap, sockets, xml, xmlwriter, zip
           coverage: none
           tools: composer:v2
       - name: Install dependencies
@@ -190,9 +192,19 @@ jobs:
             exit 1
           fi
 
+  api-base:
+    name: Ensure immutable API base
+    needs: contract
+    uses: ./.github/workflows/base-image.yml
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
   publish:
     name: Build and publish ${{ matrix.component }}
-    needs: [contract, api-quality, engine-quality, web-quality, infrastructure-quality]
+    needs: [contract, api-quality, engine-quality, web-quality, infrastructure-quality, api-base]
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
@@ -228,22 +240,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Wait for immutable API base publication
-        if: matrix.component == 'api'
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE_IMAGE="ghcr.io/${{ needs.contract.outputs.namespace }}/auditorfiscal-api-base:php8.4-v2"
-          for attempt in $(seq 1 60); do
-            if docker buildx imagetools inspect "$BASE_IMAGE" >/dev/null 2>&1; then
-              exit 0
-            fi
-            echo "Aguardando publicação de $BASE_IMAGE ($attempt/60)"
-            sleep 10
-          done
-          echo "Imagem-base não publicada: $BASE_IMAGE" >&2
-          exit 1
-
       - name: Extract OCI metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -277,7 +273,7 @@ jobs:
           cache-from: type=gha,scope=release-${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}
           build-args: |
-            BASE_IMAGE=ghcr.io/${{ needs.contract.outputs.namespace }}/auditorfiscal-api-base:php8.4-v2
+            BASE_IMAGE=${{ needs.api-base.outputs.image }}
             APP_VERSION=${{ needs.contract.outputs.version }}
           provenance: mode=max
           sbom: true
