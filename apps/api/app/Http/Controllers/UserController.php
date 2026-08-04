@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
@@ -23,7 +24,15 @@ class UserController extends Controller
             'roles',
             'account:id,legal_name,trade_name,tax_id,active',
             'clients:id,tenant_id,legal_name,trade_name,tax_id,active',
-        )->withMax('tokens as last_seen_at', 'last_used_at');
+        );
+
+        // Instalações antigas e alguns bancos efêmeros de teste ainda podem
+        // não ter a tabela do Sanctum. A listagem de usuários continua
+        // disponível e simplesmente informa todos como offline até a tabela
+        // existir e os tokens começarem a registrar atividade.
+        if (Schema::hasTable('personal_access_tokens')) {
+            $query->withMax('tokens as last_seen_at', 'last_used_at');
+        }
 
         if (! TenantAccess::isPlatformAdmin($request->user())) {
             $query->where('tenant_id', $request->user()->tenant_id ?? '__sem-conta__');
