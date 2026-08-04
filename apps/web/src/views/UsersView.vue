@@ -5,7 +5,7 @@ import {useAuthStore} from '@/stores/auth';
 
 const auth=useAuthStore();
 const users=ref<any[]>([]),roles=ref<any[]>([]),clients=ref<any[]>([]),accounts=ref<any[]>([]),editing=ref<number>(),error=ref(''),loading=ref(false);
-const empty=()=>({name:'',email:'',password:'',role:'Auditor Fiscal',account_id:auth.user?.tenant_id||'',access_mode:'selected',client_ids:[] as string[],active:true});
+const empty=()=>({name:'',email:'',password:'',role:'Auditor Fiscal',account_id:auth.user?.tenant_id||'',access_mode:'selected',analysis_visibility:'own',client_ids:[] as string[],active:true});
 const form=ref<any>(empty());
 const availableClients=computed(()=>clients.value.filter(client=>client.tenant_id===form.value.account_id));
 const canSave=computed(()=>!!form.value.account_id&&(form.value.role==='Administrador'||form.value.access_mode==='all'||form.value.client_ids.length>0));
@@ -14,7 +14,7 @@ async function load(){loading.value=true;error.value='';try{const [usersResponse
 onMounted(load);
 watch(()=>form.value.account_id,()=>{form.value.client_ids=form.value.client_ids.filter((id:string)=>availableClients.value.some(client=>client.id===id))});
 function hasAllClients(user:any){return user.all_clients||user.roles?.some((role:any)=>role.name==='Administrador')}
-function edit(user:any){const assigned=user.clients||user.companies||[];editing.value=user.id;form.value={name:user.name,email:user.email,password:'',role:user.roles[0]?.name||'Consulta',account_id:user.tenant_id,access_mode:hasAllClients(user)?'all':'selected',client_ids:assigned.map((client:any)=>client.id),active:user.active};error.value=''}
+function edit(user:any){const assigned=user.clients||user.companies||[];editing.value=user.id;form.value={name:user.name,email:user.email,password:'',role:user.roles[0]?.name||'Consulta',account_id:user.tenant_id,access_mode:hasAllClients(user)?'all':'selected',analysis_visibility:user.analysis_visibility||'own',client_ids:assigned.map((client:any)=>client.id),active:user.active};error.value=''}
 function cancel(){editing.value=undefined;form.value=empty();if(!form.value.account_id)form.value.account_id=accounts.value[0]?.id||'';error.value=''}
 function selectMode(mode:'all'|'selected'){form.value.access_mode=mode;if(mode==='all')form.value.client_ids=[]}
 async function save(){try{const payload={...form.value,all_clients:form.value.access_mode==='all',client_ids:form.value.access_mode==='all'?[]:form.value.client_ids};delete payload.access_mode;if(editing.value&&!payload.password)delete payload.password;if(editing.value)await api.patch(`/users/${editing.value}`,payload);else await api.post('/users',payload);cancel();await load()}catch(e){error.value=messageOf(e)}}
@@ -23,10 +23,10 @@ async function save(){try{const payload={...form.value,all_clients:form.value.ac
 <template><div class="split">
   <section class="card">
     <div class="card-title"><div><h2>Usuários das empresas da plataforma</h2><p>Cada usuário pertence a uma empresa assinante e acessa todos ou apenas clientes auditados selecionados.</p></div></div>
-    <div class="table-scroll"><table><thead><tr><th>Nome</th><th>E-mail</th><th v-if="auth.isPlatformAdmin">Empresa</th><th>Perfil</th><th>Clientes permitidos</th><th>Status</th><th></th></tr></thead><tbody>
-      <tr v-if="loading"><td :colspan="auth.isPlatformAdmin?7:6">Carregando usuários...</td></tr>
-      <tr v-else-if="!users.length"><td :colspan="auth.isPlatformAdmin?7:6">Nenhum usuário encontrado.</td></tr>
-      <template v-else><tr v-for="user in users" :key="user.id"><td>{{user.name}}</td><td>{{user.email}}</td><td v-if="auth.isPlatformAdmin">{{user.account?.trade_name||user.account?.legal_name||'Master da plataforma'}}</td><td>{{user.roles.map((role:any)=>role.name).join(', ')}}</td><td>{{user.tenant_id?(hasAllClients(user)?'Todos os clientes':`${(user.clients||[]).length} cliente(s)`):'Todas as empresas e clientes'}}</td><td>{{user.active?'Ativo':'Inativo'}}</td><td><button v-if="user.tenant_id" @click="edit(user)">Editar</button><span v-else class="hint">Conta master</span></td></tr></template>
+    <div class="table-scroll"><table><thead><tr><th>Nome</th><th>E-mail</th><th v-if="auth.isPlatformAdmin">Empresa</th><th>Perfil</th><th>Clientes permitidos</th><th>Auditorias visíveis</th><th>Status</th><th></th></tr></thead><tbody>
+      <tr v-if="loading"><td :colspan="auth.isPlatformAdmin?8:7">Carregando usuários...</td></tr>
+      <tr v-else-if="!users.length"><td :colspan="auth.isPlatformAdmin?8:7">Nenhum usuário encontrado.</td></tr>
+      <template v-else><tr v-for="user in users" :key="user.id"><td>{{user.name}}</td><td>{{user.email}}</td><td v-if="auth.isPlatformAdmin">{{user.account?.trade_name||user.account?.legal_name||'Master da plataforma'}}</td><td>{{user.roles.map((role:any)=>role.name).join(', ')}}</td><td>{{user.tenant_id?(hasAllClients(user)?'Todos os clientes':`${(user.clients||[]).length} cliente(s)`):'Todas as empresas e clientes'}}</td><td>{{user.analysis_visibility==='all'||user.roles?.some((role:any)=>role.name==='Administrador')?'Todas as auditorias':'Somente as próprias'}}</td><td>{{user.active?'Ativo':'Inativo'}}</td><td><button v-if="user.tenant_id" @click="edit(user)">Editar</button><span v-else class="hint">Conta master</span></td></tr></template>
     </tbody></table></div>
     <p v-if="error" class="error">{{error}}</p>
   </section>
@@ -37,6 +37,7 @@ async function save(){try{const payload={...form.value,all_clients:form.value.ac
     <label>E-mail de acesso<input v-model="form.email" type="email" required></label>
     <label>{{editing?'Nova senha (opcional)':'Senha inicial'}}<input v-model="form.password" type="password" minlength="12" :required="!editing"></label>
     <label>Perfil<select v-model="form.role"><option v-for="role in roles" :key="role.id">{{role.name}}</option></select></label>
+    <fieldset><legend>Auditorias visíveis</legend><div class="selection-list"><label><input v-model="form.analysis_visibility" value="own" type="radio"><span><strong>Somente as próprias</strong><small><br>Exibe apenas auditorias iniciadas por este usuário nos clientes permitidos.</small></span></label><label><input v-model="form.analysis_visibility" value="all" type="radio" :disabled="!auth.isAdmin"><span><strong>Todas as auditorias da empresa</strong><small><br>Indicado para administradores e auditores responsáveis pela operação.</small></span></label></div></fieldset>
     <fieldset><legend>Escopo de acesso</legend><div class="selection-list">
       <label><input type="radio" name="access-mode" :checked="form.access_mode==='all'" @change="selectMode('all')"><span><strong>Todos os clientes da empresa</strong><small><br>Inclui clientes atuais e futuros somente da empresa assinante selecionada.</small></span></label>
       <label><input type="radio" name="access-mode" :checked="form.access_mode==='selected'" @change="selectMode('selected')"><span><strong>Clientes selecionados</strong><small><br>Limita auditorias, relatórios, notas e logs aos clientes marcados.</small></span></label>

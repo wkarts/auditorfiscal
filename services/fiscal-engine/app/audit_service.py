@@ -11,7 +11,6 @@ from .cancellation import AuditCancellationGuard,AuditCancelled
 from .cross_rules import apply_cross_document_rules
 from .reports.pdf_report import build_pdf
 from .reports.excel_report import build_excel
-from .danfe import build_danfe
 from .document_duplicates import document_identity,duplicate_finding
 from .input_validation import FiscalInputError
 from .settings import settings
@@ -29,7 +28,7 @@ class AuditService:
                 safe_source_name=f"{source['id']}-{Path(source['original_name']).name}"
                 local=self.storage.download(source['storage_path'],root/'sources'/safe_source_name)
                 if local.suffix.lower()=='.zip':
-                    for candidate in self._safe_extract(local,root/'extracted'/source['id']):
+                    for candidate in self._safe_extract(local,root/'extracted'/source['id'],cancellation):
                         (xml_candidates if candidate.suffix.lower()=='.xml' else pdf_candidates).append((candidate,source['id']))
                 elif local.suffix.lower()=='.xml':xml_candidates.append((local,source['id']))
                 elif local.suffix.lower()=='.pdf':pdf_candidates.append((local,source['id']))
@@ -66,18 +65,15 @@ class AuditService:
                 if not access_key or access_key not in documents_by_key or access_key in attached_danfe:continue
                 data=pdf_path.read_bytes()
                 if not data.startswith(b'%PDF-'):continue
-                danfe_path=f"batches/{payload['batch_id']}/danfe/{access_key}.pdf"
+                danfe_path=f"batches/{payload['batch_id']}/auxiliary-documents/imported-{access_key}.pdf"
                 self.storage.put_bytes(data,danfe_path,content_type='application/pdf')
-                documents_by_key[access_key]['danfe_storage_path']=danfe_path;documents_by_key[access_key]['normalized']['danfe_source']='imported';attached_danfe.add(access_key)
-            generated_dir=root/'danfe-generated';generated_dir.mkdir()
-            for document in documents:
-                cancellation.checkpoint('geracao-danfe')
-                if document.get('danfe_storage_path'):continue
-                reference=document.get('access_key') or document.get('document_ref')
-                generated=generated_dir/f'{reference}.pdf';build_danfe(generated,document)
-                danfe_path=f"batches/{payload['batch_id']}/danfe/{reference}.pdf"
-                self.storage.upload(generated,danfe_path,'application/pdf')
-                document['danfe_storage_path']=danfe_path;document['normalized']['danfe_source']='generated_from_xml'
+                document=documents_by_key[access_key]
+                document['danfe_storage_path']=danfe_path
+                document['normalized']['auxiliary_document']={
+                    'type':{'55':'DANFE','65':'DANFCE','57':'DACTE','67':'DACTE_OS','58':'DAMDFE'}.get(document.get('model'),'PDF_AUXILIAR'),
+                    'source':'imported_original',
+                }
+                attached_danfe.add(access_key)
             event_map={e['access_key']:e for e in events if e.get('event_type')=='110111' and e.get('status_code') in {'135','136','155'}}
             for d in documents:
                 if d.get('access_key') in event_map:d['status']='cancelled';d['normalized']['cancellation_event']=event_map[d['access_key']]
@@ -96,7 +92,7 @@ class AuditService:
                 cancellation.checkpoint('publicacao-relatorio')
                 key=f"batches/{payload['batch_id']}/reports/auditoria.{typ}";meta=self.storage.upload(file,key,mime);reports.append({'type':typ,'template_version':settings.report_template_version,'storage_path':key,'size':meta['size'],'sha256':sha256(file.read_bytes()).hexdigest(),'metadata':{'catalog_version':payload.get('catalog_version')}})
         return {'documents':documents,'findings':findings,'summary':summary,'reports':reports,'events':events}
-    def _safe_extract(self,archive:Path,dest:Path):
+    def _safe_extract(self,archive:Path,dest:Path,cancellation:AuditCancellationGuard|None=None):
         dest.mkdir(parents=True,exist_ok=True);files=[]
         try:
             with ZipFile(archive) as z:
@@ -105,6 +101,7 @@ class AuditService:
                 total=sum(m.file_size for m in members)
                 if total>settings.zip_max_uncompressed_mb*1024*1024:raise ValueError('ZIP excede o limite descompactado')
                 for m in members:
+                    if cancellation:cancellation.checkpoint('descompactacao-zip')
                     if m.is_dir() or Path(m.filename).suffix.lower() not in {'.xml','.pdf'}:continue
                     member_path=Path(m.filename.replace('\\','/'))
                     if member_path.is_absolute() or '..' in member_path.parts:raise ValueError('Caminho inseguro no ZIP')
@@ -114,7 +111,9 @@ class AuditService:
                     target=(dest/safe_name).resolve()
                     if not target.is_relative_to(dest.resolve()):raise ValueError('Caminho inseguro no ZIP')
                     with z.open(m) as src,target.open('wb') as out:
-                        while chunk:=src.read(1024*1024):out.write(chunk)
+                        while chunk:=src.read(1024*1024):
+                            if cancellation:cancellation.checkpoint('descompactacao-zip')
+                            out.write(chunk)
                     files.append(target)
         except BadZipFile as e:raise ValueError('Arquivo ZIP inválido') from e
         return files

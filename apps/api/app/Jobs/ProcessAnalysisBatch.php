@@ -62,15 +62,32 @@ class ProcessAnalysisBatch implements ShouldQueue
         }
 
         $attempt = max(1, $this->attempts());
-        $batch->update([
-            'status' => 'processing',
-            'started_at' => $batch->started_at ?? now(),
-            'last_attempt_at' => now(),
-            'attempt_count' => max((int) $batch->attempt_count, $attempt),
-            'progress' => 0.01,
-            'error' => null,
-            'finished_at' => null,
-        ]);
+        $claimed = AnalysisBatch::query()
+            ->whereKey($batch->id)
+            ->whereNull('cancel_requested_at')
+            ->whereIn('status', ['queued', 'retrying', 'processing'])
+            ->update([
+                'status' => 'processing',
+                'started_at' => $batch->started_at ?? now(),
+                'last_attempt_at' => now(),
+                'attempt_count' => max((int) $batch->attempt_count, $attempt),
+                'progress' => 0.01,
+                'error' => null,
+                'finished_at' => null,
+            ]);
+        if ($claimed === 0) {
+            $batch->refresh();
+            if ($batch->cancellationRequested()) {
+                $this->finalizeCancellation($batch, 'Cancelamento aplicado antes de a tentativa assumir o processamento.');
+            } else {
+                ApplicationLogger::record('notice', 'audit-worker', 'job_claim_skipped', 'Job ignorado porque o lote não está mais disponível para processamento.', [
+                    'status' => $batch->status,
+                ], $batch, attempt: $attempt);
+            }
+
+            return;
+        }
+        $batch->refresh();
         ApplicationLogger::record('info', 'audit-worker', 'processing_started', 'Tentativa de processamento iniciada.', [
             'queue_job_id' => $this->job?->getJobId(),
             'source_file_count' => $batch->sourceFiles->count(),
@@ -126,13 +143,24 @@ class ProcessAnalysisBatch implements ShouldQueue
                 'finding_count' => count($result['findings']),
                 'report_count' => count($result['reports'] ?? []),
             ], $batch, attempt: $attempt);
-            if (! $this->persistResults($batch, $result)) {
+            $persistence = $this->persistResults($batch, $result);
+            if (! $persistence['completed']) {
                 $cancelled = AnalysisBatch::find($batch->id);
                 if ($cancelled?->status === 'cancelled') {
                     $this->recordCancellation($cancelled, 'Cancelamento aplicado durante a proteção transacional dos resultados.');
                 }
 
                 return;
+            }
+            foreach ($persistence['document_ids'] as $documentId) {
+                try {
+                    GenerateFiscalAuxiliaryDocument::dispatch($documentId)->onQueue('reports');
+                } catch (Throwable $exception) {
+                    ApplicationLogger::record('warning', 'auxiliary-document', 'generation_queue_failed', 'A auditoria foi concluída, mas não foi possível enfileirar a geração do documento auxiliar.', [
+                        'document_id' => $documentId,
+                        'exception' => $exception,
+                    ], $batch, attempt: $attempt);
+                }
             }
             $batch->refresh();
             if ($duplicateCount > 0) {
@@ -208,12 +236,13 @@ class ProcessAnalysisBatch implements ShouldQueue
         ];
     }
 
-    private function persistResults(AnalysisBatch $batch, array $result): bool
+    /** @return array{completed: bool, document_ids: array<int, string>} */
+    private function persistResults(AnalysisBatch $batch, array $result): array
     {
-        return DB::transaction(function () use ($batch, $result): bool {
+        return DB::transaction(function () use ($batch, $result): array {
             $lockedBatch = AnalysisBatch::withTrashed()->lockForUpdate()->findOrFail($batch->id);
             if ($lockedBatch->status === 'completed') {
-                return true;
+                return ['completed' => true, 'document_ids' => []];
             }
             if ($lockedBatch->trashed() || $lockedBatch->cancellationRequested()) {
                 if (! $lockedBatch->trashed()) {
@@ -225,22 +254,38 @@ class ProcessAnalysisBatch implements ShouldQueue
                     ]);
                 }
 
-                return false;
+                return ['completed' => false, 'document_ids' => []];
             }
 
             $documentMap = [];
             $itemMap = [];
+            $documentIds = [];
 
             foreach ($result['documents'] as $documentData) {
                 $items = $documentData['items'] ?? [];
                 unset($documentData['items']);
                 $reference = $documentData['document_ref'];
                 unset($documentData['document_ref']);
+                if (! empty($documentData['danfe_storage_path'])) {
+                    $documentData['auxiliary_document_storage_path'] = $documentData['danfe_storage_path'];
+                    $documentData['auxiliary_document_type'] = match ((string) ($documentData['model'] ?? '')) {
+                        '65' => 'DANFCE',
+                        '57' => 'DACTE',
+                        '67' => 'DACTE_OS',
+                        '58' => 'DAMDFE',
+                        default => 'DANFE',
+                    };
+                    $documentData['auxiliary_document_source'] = 'imported_original';
+                    $documentData['auxiliary_document_status'] = 'available';
+                } else {
+                    $documentData['auxiliary_document_status'] = 'pending';
+                }
                 $documentData['id'] = (string) Str::uuid();
                 $documentData['analysis_batch_id'] = $lockedBatch->id;
                 $documentData['normalized'] = json_encode($documentData['normalized'] ?? [], JSON_UNESCAPED_UNICODE);
                 $document = FiscalDocument::create($documentData);
                 $documentMap[$reference] = $document->id;
+                $documentIds[] = $document->id;
 
                 foreach ($items as $itemData) {
                     $itemNumber = $itemData['item_number'];
@@ -290,7 +335,7 @@ class ProcessAnalysisBatch implements ShouldQueue
                 'finished_at' => now(),
             ]);
 
-            return true;
+            return ['completed' => true, 'document_ids' => $documentIds];
         }, 3);
     }
 

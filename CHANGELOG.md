@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0] - 2026-08-04
+
+### Adicionado
+
+- Geração assíncrona de DANFE, DANFCE, DACTE, DACTE OS e DAMDFE com NFePHP a partir do XML fiscal, preservando com prioridade o PDF original importado.
+- Escopo por usuário para consultar somente as próprias auditorias ou todas as auditorias da empresa assinante; administradores sempre consultam o histórico completo.
+- Leitura de CT-e, CT-e OS e MDF-e para preservação, consulta e geração do documento auxiliar compatível.
+
+### Corrigido
+
+- Removido o gerador genérico de PDF: um documento sem renderizador configurado não recebe mais uma representação inventada.
+- Cancelamento protegido contra corrida entre API e worker, com verificação durante extração de ZIP e atualização contínua da interface enquanto o lote cancela.
+
 ## [1.1.18] - 2026-08-04
 
 ### Alterado
