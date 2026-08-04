@@ -27,7 +27,7 @@ class ClientCompanyAccessTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['role_has_permissions', 'model_has_permissions', 'model_has_roles', 'permissions', 'roles', 'tenant_user', 'company_user', 'companies', 'users', 'tenants'] as $table) {
+        foreach (['audit_logs', 'role_has_permissions', 'model_has_permissions', 'model_has_roles', 'permissions', 'roles', 'tenant_user', 'company_user', 'companies', 'users', 'tenants'] as $table) {
             Schema::dropIfExists($table);
         }
         Schema::create('tenants', function (Blueprint $table): void {
@@ -107,12 +107,27 @@ class ClientCompanyAccessTest extends TestCase
             $table->timestamps();
             $table->primary(['company_id', 'user_id']);
         });
+        Schema::create('audit_logs', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->uuid('company_id')->nullable();
+            $table->string('action');
+            $table->string('entity_type')->nullable();
+            $table->string('entity_id')->nullable();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->string('request_id')->nullable();
+            $table->json('before')->nullable();
+            $table->json('after')->nullable();
+            $table->json('metadata')->default('{}');
+            $table->timestamp('created_at')->useCurrent();
+        });
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
     protected function tearDown(): void
     {
-        foreach (['role_has_permissions', 'model_has_permissions', 'model_has_roles', 'permissions', 'roles', 'tenant_user', 'company_user', 'companies', 'users', 'tenants'] as $table) {
+        foreach (['audit_logs', 'role_has_permissions', 'model_has_permissions', 'model_has_roles', 'permissions', 'roles', 'tenant_user', 'company_user', 'companies', 'users', 'tenants'] as $table) {
             Schema::dropIfExists($table);
         }
         parent::tearDown();
