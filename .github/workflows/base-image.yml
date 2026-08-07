@@ -127,7 +127,7 @@ jobs:
 
       - name: Attest image
         if: steps.availability.outputs.exists != 'true'
-        uses: actions/attest@v4.2.0
+        uses: actions/attest@v4.2.2
         with:
           subject-name: ghcr.io/${{ steps.image.outputs.namespace }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
